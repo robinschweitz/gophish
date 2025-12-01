@@ -71,6 +71,68 @@ var capitalize = function (string) {
 Define our API Endpoints
 */
 var api = {
+    scenarios: {
+        // get() - Queries the API for GET /scenarios
+        get: function () {
+            return query("/scenarios/", "GET", {}, false)
+        },
+        // post() - Posts a scenario to POST /scenarios
+        post: function (data) {
+            return query("/scenarios/", "POST", data, false)
+        },
+        put: function (data) {
+            return query("/scenarios/" + data.id, "PUT", data, false)
+        },
+        // delete() - Deletes a scenario at DELETE /scenarios/:id
+        delete: function (id) {
+            return query("/scenarios/" + id, "DELETE", {}, false)
+        }
+    },
+    scenarioId: {
+        // get() - Queries the API for GET /scenarios/:id
+        get: function (id) {
+            return query("/scenarios/" + id, "GET", {}, true)
+        },
+    },
+    // item contains the endpoints for /item/:id
+    item: {
+        // summary() - Queries the API for GET /campaigns/summary
+        get_teams: function (item) {
+            return query("/" + item.type + "/" + item.id + "/teams", "GET", {}, true)
+        },
+        // summary() - Queries the API for GET /campaigns/summary
+        post_teams: function (item) {
+            return query("/" + item.type + "/" + item.id + "/teams", "POST", item.teams, true)
+        }
+    },
+    teams: {
+        // get() - Queries the API for GET /teams
+        get: function () {
+            return query("/teams/", "GET", {}, false)
+        },
+        // post() - Posts a campaign to POST /teams
+        post: function (data) {
+            return query("/teams", "POST", data, false)
+        },
+        // summary() - Queries the API for GET /teams/summary
+        summary: function () {
+            return query("/teams/summary", "GET", {}, false)
+        }
+    },
+    teamId: {
+        // get() - Queries the API for GET /teams/:id
+        get: function (id) {
+            return query("/teams/" + id, "GET", {}, false)
+        },
+        // put() - Puts a teams to PUT /teams/:id
+        put: function (group) {
+            return query("/teams/" + group.id, "PUT", group, false)
+        },
+        // delete() - Deletes a teams at DELETE /teams/:id
+        delete: function (id) {
+            return query("/teams/" + id, "DELETE", {}, false)
+        }
+    },
     // campaigns contains the endpoints for /campaigns
     campaigns: {
         // get() - Queries the API for GET /campaigns
@@ -102,11 +164,15 @@ var api = {
         },
         // complete() - Completes a campaign at POST /campaigns/:id/complete
         complete: function (id) {
-            return query("/campaigns/" + id + "/complete", "GET", {}, true)
+            return query("/campaigns/" + id + "/complete", "POST", {}, true)
         },
         // summary() - Queries the API for GET /campaigns/summary
         summary: function (id) {
             return query("/campaigns/" + id + "/summary", "GET", {}, true)
+        },
+        // summary() - Queries the API for GET /campaigns/summary
+        teams: function (id) {
+            return query("/campaigns/" + id + "/teams", "GET", {}, true)
         }
     },
     // groups contains the endpoints for /groups
@@ -230,6 +296,13 @@ var api = {
         }
     },
     // users contains the endpoints for /users
+    user: {
+        // get() - Queries the API for GET /users/:id
+        current: function (id) {
+            return query("/user", "GET", {}, true)
+        },
+    },
+    // users contains the endpoints for /users
     users: {
         // get() - Queries the API for GET /users
         get: function () {
@@ -245,6 +318,10 @@ var api = {
         // get() - Queries the API for GET /users/:id
         get: function (id) {
             return query("/users/" + id, "GET", {}, true)
+        },
+        // get() - Queries the API for GET /users/:id
+        teams: function (id) {
+            return query("/users/" + id + "/teams", "GET", {}, true)
         },
         // put() - Puts a user to PUT /users/:id
         put: function (user) {
@@ -310,3 +387,18 @@ $(document).ready(function () {
     // Setup tooltips
     $('[data-toggle="tooltip"]').tooltip()
 });
+
+var dropdown = document.getElementsByClassName("dropdown-btn");
+var i;
+
+for (i = 0; i < dropdown.length; i++) {
+  dropdown[i].addEventListener("click", function() {
+    this.classList.toggle("active");
+    var dropdownContent = this.nextElementSibling;
+    if (dropdownContent.style.display === "block") {
+      dropdownContent.style.display = "none";
+    } else {
+      dropdownContent.style.display = "block";
+    }
+  });
+} 

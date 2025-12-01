@@ -34,6 +34,13 @@ const (
 	// create, manage, and view Gophish objects and campaigns.
 	RoleUser = "user"
 
+	RoleTeamAdmin   = "team_admin"
+	RoleContributor = "contributor"
+	RoleViewer      = "viewer"
+
+	PermissionViewTeamObjects   = "view_team_objects"
+	PermissionModifyTeamObjects = "modify_team_objects"
+	PermissionDeleteTeamObjects = "delete_team_objects"
 	// PermissionViewObjects determines if a role can view standard Gophish
 	// objects such as campaigns, groups, landing pages, etc.
 	PermissionViewObjects = "view_objects"
@@ -68,6 +75,7 @@ type Permission struct {
 func GetRoleBySlug(slug string) (Role, error) {
 	role := Role{}
 	err := db.Where("slug=?", slug).First(&role).Error
+
 	return role, err
 }
 
@@ -82,6 +90,29 @@ func (u *User) HasPermission(slug string) (bool, error) {
 	// Gorm doesn't return an ErrRecordNotFound whe scanning into a slice, so
 	// we need to check the length (ref jinzhu/gorm#228)
 	if len(perm) == 0 {
+		return false, nil
+	}
+	return true, nil
+}
+
+// HasPermission checks to see if the user has a role with the requested
+// permission.
+func (u *User) HasTeamPermission(slug string, objectID int64, item string) (bool, error) {
+	// Check team-specific permissions
+	teamPerms := []Permission{}
+	err := db.Table("permissions").Select("permissions.*").
+		Joins("JOIN role_permissions ON role_permissions.permission_id = permissions.id").
+		Joins("JOIN roles ON roles.id = role_permissions.role_id").
+		Joins("JOIN team_users ON team_users.role_id = roles.id").
+		Joins("JOIN item_teams ON item_teams.team_id = team_users.team_id").
+		Where("team_users.user_id = ? AND item_teams.item_id = ? AND permissions.slug = ?", u.Id, objectID, slug).
+		Find(&teamPerms).Error
+	if err != nil {
+		return false, err
+	}
+	// Gorm doesn't return an ErrRecordNotFound whe scanning into a slice, so
+	// we need to check the length (ref jinzhu/gorm#228)
+	if len(teamPerms) == 0 {
 		return false, nil
 	}
 	return true, nil

@@ -69,7 +69,7 @@ func (w *DefaultWorker) processCampaigns(t time.Time) error {
 		// generate the message (ref #1726)
 		c, ok := campaignCache[m.CampaignId]
 		if !ok {
-			c, err = models.GetCampaignMailContext(m.CampaignId, m.UserId)
+			c, err = models.GetCampaignContext(m.CampaignId, m.UserId)
 			if err != nil {
 				return err
 			}
@@ -115,36 +115,66 @@ func (w *DefaultWorker) Start() {
 
 // LaunchCampaign starts a campaign
 func (w *DefaultWorker) LaunchCampaign(c models.Campaign) {
-	ms, err := models.GetMailLogsByCampaign(c.Id)
+	campaignMailCtx, err := models.GetCampaignContext(c.Id, c.UserId)
 	if err != nil {
 		log.Error(err)
 		return
 	}
-	models.LockMailLogs(ms, true)
-	// This is required since you cannot pass a slice of values
-	// that implements an interface as a slice of that interface.
-	mailEntries := []mailer.Mail{}
-	currentTime := time.Now().UTC()
-	campaignMailCtx, err := models.GetCampaignMailContext(c.Id, c.UserId)
-	if err != nil {
-		log.Error(err)
-		return
-	}
-	for _, m := range ms {
-		// Only send the emails scheduled to be sent for the past minute to
-		// respect the campaign scheduling options
-		if m.SendDate.After(currentTime) {
-			m.Unlock()
-			continue
-		}
-		err = m.CacheCampaign(&campaignMailCtx)
+	for _, s := range c.Scenarios {
+		scenario, err := models.GetScenario(s.Id, c.UserId)
 		if err != nil {
 			log.Error(err)
 			return
 		}
-		mailEntries = append(mailEntries, m)
+		for _, t := range s.Templates {
+			mailEntries := []mailer.Mail{}
+			ms, err := models.GetMailLogsByCampaignScenarioTemplates(c.Id, s.Id, t.Id)
+			if err != nil {
+				log.Error(err)
+				return
+			}
+			if len(ms) == 0 {
+				continue
+			}
+			models.LockMailLogs(ms, true)
+			template, err := models.GetTemplate(t.Id, c.UserId)
+			if err != nil {
+				log.Error(err)
+				return
+			}
+			// This is required since you cannot pass a slice of values
+			// that implements an interface as a slice of that interface.
+			//for _, template := range scenario.Templates {
+			currentTime := time.Now().UTC()
+
+			for _, m := range ms {
+				if m.SendDate.After(currentTime) {
+					m.Unlock()
+					continue
+				}
+				err = m.CacheCampaign(&campaignMailCtx)
+				if err != nil {
+					log.Error(err)
+					return
+				}
+				err = m.CacheTemplate(&template)
+				if err != nil {
+					log.Error(err)
+					return
+				}
+				err = m.CacheScenario(&scenario)
+				if err != nil {
+					log.Error(err)
+					return
+				}
+
+				mailEntries = append(mailEntries, m)
+			}
+			if len(mailEntries) != 0 {
+				w.mailer.Queue(mailEntries)
+			}
+		}
 	}
-	w.mailer.Queue(mailEntries)
 }
 
 // SendTestEmail sends a test email

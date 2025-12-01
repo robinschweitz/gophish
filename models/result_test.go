@@ -10,7 +10,8 @@ import (
 
 func (s *ModelsSuite) TestGenerateResultId(c *check.C) {
 	r := Result{}
-	r.GenerateId(db)
+	err := r.GenerateId(db)
+	c.Assert(err, check.Equals, nil)
 	match, err := regexp.Match("[a-zA-Z0-9]{7}", []byte(r.RId))
 	c.Assert(err, check.Equals, nil)
 	c.Assert(match, check.Equals, true)
@@ -78,9 +79,9 @@ func (s *ModelsSuite) TestResultVariableStatus(ch *check.C) {
 func (s *ModelsSuite) TestDuplicateResults(ch *check.C) {
 	group := Group{Name: "Test Group"}
 	group.Targets = []Target{
-		Target{BaseRecipient: BaseRecipient{Email: "test1@example.com", FirstName: "First", LastName: "Example"}},
-		Target{BaseRecipient: BaseRecipient{Email: "test1@example.com", FirstName: "Duplicate", LastName: "Duplicate"}},
-		Target{BaseRecipient: BaseRecipient{Email: "test2@example.com", FirstName: "Second", LastName: "Example"}},
+		{BaseRecipient: BaseRecipient{Email: "test1@example.com", FirstName: "First", LastName: "Example"}},
+		{BaseRecipient: BaseRecipient{Email: "test1@example.com", FirstName: "Duplicate", LastName: "Duplicate"}},
+		{BaseRecipient: BaseRecipient{Email: "test2@example.com", FirstName: "Second", LastName: "Example"}},
 	}
 	group.UserId = 1
 	ch.Assert(PostGroup(&group), check.Equals, nil)
@@ -106,10 +107,15 @@ func (s *ModelsSuite) TestDuplicateResults(ch *check.C) {
 	smtp.FromAddress = "test@test.com"
 	ch.Assert(PostSMTP(&smtp), check.Equals, nil)
 
+	scenario := Scenario{UserId: 1, Name: "Test", Description: "Test"}
+	scenario.Templates = append([]Template{}, t)
+	scenario.Page = p
+	scenario.URL = "localhost"
+	ch.Assert(PostScenario(&scenario, 1), check.Equals, nil)
+
 	c := Campaign{Name: "Test campaign"}
 	c.UserId = 1
-	c.Template = t
-	c.Page = p
+	c.Scenarios = append([]Scenario{}, scenario)
 	c.SMTP = smtp
 	c.Groups = []Group{group}
 

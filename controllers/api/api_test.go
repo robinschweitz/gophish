@@ -46,8 +46,8 @@ func createTestData(t *testing.T) {
 	// Add a group
 	group := models.Group{Name: "Test Group"}
 	group.Targets = []models.Target{
-		models.Target{BaseRecipient: models.BaseRecipient{Email: "test1@example.com", FirstName: "First", LastName: "Example"}},
-		models.Target{BaseRecipient: models.BaseRecipient{Email: "test2@example.com", FirstName: "Second", LastName: "Example"}},
+		{BaseRecipient: models.BaseRecipient{Email: "test1@example.com", FirstName: "First", LastName: "Example"}},
+		{BaseRecipient: models.BaseRecipient{Email: "test2@example.com", FirstName: "Second", LastName: "Example"}},
 	}
 	group.UserId = 1
 	models.PostGroup(&group)
@@ -73,12 +73,14 @@ func createTestData(t *testing.T) {
 	smtp.FromAddress = "test@test.com"
 	models.PostSMTP(&smtp)
 
+	scenario := models.Scenario{UserId: 1, Name: "Test", Description: "Test", Templates: append([]models.Template{}, template), Page: p}
+	models.PostScenario(&scenario, 1)
+
 	// Setup and "launch" our campaign
 	// Set the status such that no emails are attempted
 	c := models.Campaign{Name: "Test campaign"}
 	c.UserId = 1
-	c.Template = template
-	c.Page = p
+	c.Scenarios = append(c.Scenarios, scenario)
 	c.SMTP = smtp
 	c.Groups = []models.Group{group}
 	models.PostCampaign(&c, c.UserId)

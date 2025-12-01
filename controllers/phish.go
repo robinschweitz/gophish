@@ -231,7 +231,16 @@ func (ps *PhishingServer) PhishHandler(w http.ResponseWriter, r *http.Request) {
 	rs := ctx.Get(r, "result").(models.Result)
 	rid := ctx.Get(r, "rid").(string)
 	c := ctx.Get(r, "campaign").(models.Campaign)
+	s := ctx.Get(r, "scenario").(models.Scenario)
+	t := ctx.Get(r, "template").(models.Template)
 	d := ctx.Get(r, "details").(models.EventDetails)
+	// Get Mail Context to get the Landing Page
+	cs, err := models.GetCampaignMailContext(c.Id, c.UserId, t.Id)
+	if err != nil {
+		log.Error(err)
+		http.NotFound(w, r)
+		return
+	}
 
 	// Check for a transparency request
 	if strings.HasSuffix(rid, TransparencySuffix) {
@@ -239,7 +248,7 @@ func (ps *PhishingServer) PhishHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, err := models.GetPage(c.PageId, c.UserId)
+	p, err := models.GetPage(s.PageId, c.UserId)
 	if err != nil {
 		log.Error(err)
 		http.NotFound(w, r)
@@ -257,7 +266,7 @@ func (ps *PhishingServer) PhishHandler(w http.ResponseWriter, r *http.Request) {
 			log.Error(err)
 		}
 	}
-	ptx, err = models.NewPhishingTemplateContext(&c, rs.BaseRecipient, rs.RId)
+	ptx, err = models.NewPhishingTemplateContext(&cs, rs.BaseRecipient, rs.RId)
 	if err != nil {
 		log.Error(err)
 		http.NotFound(w, r)
@@ -354,6 +363,16 @@ func setupContext(r *http.Request) (*http.Request, error) {
 		log.Error(err)
 		return r, err
 	}
+	s, err := models.GetScenario(rs.ScenarioId, rs.UserId)
+	if err != nil {
+		log.Error(err)
+		return r, err
+	}
+	t, err := models.GetTemplate(rs.TemplateId, rs.UserId)
+	if err != nil {
+		log.Error(err)
+		return r, err
+	}
 	// Don't process events for completed campaigns
 	if c.Status == models.CampaignComplete {
 		return r, ErrCampaignComplete
@@ -377,6 +396,8 @@ func setupContext(r *http.Request) (*http.Request, error) {
 	r = ctx.Set(r, "rid", rid)
 	r = ctx.Set(r, "result", rs)
 	r = ctx.Set(r, "campaign", c)
+	r = ctx.Set(r, "scenario", s)
+	r = ctx.Set(r, "template", t)
 	r = ctx.Set(r, "details", d)
 	return r, nil
 }

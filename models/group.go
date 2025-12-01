@@ -14,11 +14,13 @@ import (
 // Group contains the fields needed for a user -> group mapping
 // Groups contain 1..* Targets
 type Group struct {
-	Id           int64     `json:"id"`
-	UserId       int64     `json:"-"`
-	Name         string    `json:"name"`
-	ModifiedDate time.Time `json:"modified_date"`
-	Targets      []Target  `json:"targets" sql:"-"`
+	Id           int64         `json:"id"`
+	UserId       int64         `json:"user_id"`
+	Name         string        `json:"name"`
+	ModifiedDate time.Time     `json:"modified_date"`
+	Targets      []Target      `json:"targets" sql:"-"`
+	Item         Item          `json:"-" gorm:"ForeignKey:item_type_id"`
+	Teams        []TeamSummary `json:"teams" gorm:"-"`
 }
 
 // GroupSummaries is a struct representing the overview of Groups.
@@ -31,10 +33,12 @@ type GroupSummaries struct {
 // difference is that, instead of listing the Targets (which could be expensive
 // for large groups), it lists the target count.
 type GroupSummary struct {
-	Id           int64     `json:"id"`
-	Name         string    `json:"name"`
-	ModifiedDate time.Time `json:"modified_date"`
-	NumTargets   int64     `json:"num_targets"`
+	Id           int64         `json:"id"`
+	UserId       int64         `json:"user_id"`
+	Name         string        `json:"name"`
+	ModifiedDate time.Time     `json:"modified_date"`
+	NumTargets   int64         `json:"num_targets"`
+	Teams        []TeamSummary `json:"teams" gorm:"-"`
 }
 
 // GroupTarget is used for a many-to-many relationship between 1..* Groups and 1..* Targets
@@ -107,33 +111,67 @@ func (g *Group) Validate() error {
 
 // GetGroups returns the groups owned by the given user.
 func GetGroups(uid int64) ([]Group, error) {
-	gs := []Group{}
-	err := db.Where("user_id=?", uid).Find(&gs).Error
+
+	// Query to get all Groups associated with a specific user either by team or by user_id
+	groups := []Group{}
+	err := db.Preload("Item", "item_type = ?", "groups").Preload("Item.Teams.Users.Teams.Role").Find(&groups).Error
 	if err != nil {
 		log.Error(err)
-		return gs, err
+		return groups, err
 	}
-	for i := range gs {
-		gs[i].Targets, err = GetTargets(gs[i].Id)
-		if err != nil {
-			log.Error(err)
+
+	gs := []Group{}
+
+	// For each Group check if user is allowed access and get all the Targets for the groups
+	for _, group := range groups {
+		if group.UserId == uid || checkForValue(uid, group.Item.Teams) {
+			ts := []TeamSummary{}
+			for _, team := range group.Item.Teams {
+				ts = append(ts, convertTeamSummary(team))
+			}
+
+			group.Targets, err = GetTargets(group.Id)
+			if err != nil {
+				log.Error(err)
+			}
+
+			group.Teams = ts
+			gs = append(gs, group)
 		}
 	}
-	return gs, nil
+
+	return gs, err
 }
 
 // GetGroupSummaries returns the summaries for the groups
 // created by the given uid.
 func GetGroupSummaries(uid int64) (GroupSummaries, error) {
 	gs := GroupSummaries{}
-	query := db.Table("groups").Where("user_id=?", uid)
-	err := query.Select("id, name, modified_date").Scan(&gs.Groups).Error
+
+	// Get the Group information
+	groups, err := GetGroups(uid)
 	if err != nil {
 		log.Error(err)
 		return gs, err
 	}
+
+	summaries := []GroupSummary{}
+
+	for i := range groups {
+		g := GroupSummary{
+			Id:           groups[i].Id,
+			UserId:       groups[i].UserId,
+			Name:         groups[i].Name,
+			ModifiedDate: groups[i].ModifiedDate,
+			Teams:        groups[i].Teams,
+		}
+		summaries = append(summaries, g)
+	}
+
+	gs.Groups = summaries
+
 	for i := range gs.Groups {
-		query = db.Table("group_targets").Where("group_id=?", gs.Groups[i].Id)
+		query := db.Table("group_targets").Where("group_id=?", gs.Groups[i].Id)
 		err = query.Count(&gs.Groups[i].NumTargets).Error
 		if err != nil {
 			return gs, err
@@ -145,29 +183,52 @@ func GetGroupSummaries(uid int64) (GroupSummaries, error) {
 
 // GetGroup returns the group, if it exists, specified by the given id and user_id.
 func GetGroup(id int64, uid int64) (Group, error) {
+
 	g := Group{}
-	err := db.Where("user_id=? and id=?", uid, id).Find(&g).Error
+	// Fetch the information about the group
+	err := db.Preload("Item", "item_type = ?", "groups").Preload("Item.Teams.Users.Teams.Role").Find(&g, "id =?", id).Error
 	if err != nil {
 		log.Error(err)
 		return g, err
 	}
+	// Check if user is allowed
+	if !(g.UserId == uid || checkForValue(uid, g.Item.Teams)) {
+		return g, ErrGroupNotFound
+	}
+	// Convert Team in correct format
+	ts := []TeamSummary{}
+	for _, team := range g.Item.Teams {
+		ts = append(ts, convertTeamSummary(team))
+	}
+	// Get all Targets of the Group
 	g.Targets, err = GetTargets(g.Id)
 	if err != nil {
 		log.Error(err)
 	}
-	return g, nil
+	g.Teams = ts
+
+	return g, err
 }
 
 // GetGroupSummary returns the summary for the requested group
 func GetGroupSummary(id int64, uid int64) (GroupSummary, error) {
 	g := GroupSummary{}
-	query := db.Table("groups").Where("user_id=? and id=?", uid, id)
-	err := query.Select("id, name, modified_date").Scan(&g).Error
+
+	group, err := GetGroup(id, uid)
 	if err != nil {
 		log.Error(err)
 		return g, err
 	}
-	query = db.Table("group_targets").Where("group_id=?", id)
+
+	g = GroupSummary{
+		Id:           group.Id,
+		UserId:       group.UserId,
+		Name:         group.Name,
+		ModifiedDate: group.ModifiedDate,
+		Teams:        group.Teams,
+	}
+
+	query := db.Table("group_targets").Where("group_id=?", id)
 	err = query.Count(&g.NumTargets).Error
 	if err != nil {
 		return g, err
@@ -175,18 +236,30 @@ func GetGroupSummary(id int64, uid int64) (GroupSummary, error) {
 	return g, nil
 }
 
-// GetGroupByName returns the group, if it exists, specified by the given name and user_id.
+// GetGroupByName returns the group, if it exists, specified by the given name and user_id. LEGACY FUNCTION
 func GetGroupByName(n string, uid int64) (Group, error) {
 	g := Group{}
-	err := db.Where("user_id=? and name=?", uid, n).Find(&g).Error
+	// Fetch Group By Name.
+	err := db.Preload("Item", "item_type = ?", "groups").Preload("Item.Teams.Users.Teams.Role").Find(&g, "name = ? AND user_id = ?", n, uid).Error
 	if err != nil {
 		log.Error(err)
 		return g, err
+	}
+
+	if !(g.UserId == uid || checkForValue(uid, g.Item.Teams)) {
+		return g, ErrPageNotFound
+	}
+
+	ts := []TeamSummary{}
+	for _, team := range g.Item.Teams {
+		ts = append(ts, convertTeamSummary(team))
 	}
 	g.Targets, err = GetTargets(g.Id)
 	if err != nil {
 		log.Error(err)
 	}
+	g.Teams = ts
+
 	return g, err
 }
 
@@ -203,6 +276,7 @@ func PostGroup(g *Group) error {
 		log.Error(err)
 		return err
 	}
+	// Insert all the targets into the DB
 	for _, t := range g.Targets {
 		err = insertTargetIntoGroup(tx, t, g.Id)
 		if err != nil {
@@ -211,6 +285,14 @@ func PostGroup(g *Group) error {
 			return err
 		}
 	}
+	// Insert the group_item
+	err = tx.Create(&Item{ItemType: "groups", ItemTypeID: g.Id}).Error
+	if err != nil {
+		tx.Rollback()
+		log.Error(err)
+		return err
+	}
+	// Commit
 	err = tx.Commit().Error
 	if err != nil {
 		log.Error(err)
@@ -296,20 +378,46 @@ func PutGroup(g *Group) error {
 }
 
 // DeleteGroup deletes a given group by group ID and user ID
+// func DeleteGroup(g *Group) error {
 func DeleteGroup(g *Group) error {
+
+	tx := db.Begin()
 	// Delete all the group_targets entries for this group
-	err := db.Where("group_id=?", g.Id).Delete(&GroupTarget{}).Error
+	err := tx.Where("group_id=?", g.Id).Delete(&GroupTarget{}).Error
 	if err != nil {
+		tx.Rollback()
 		log.Error(err)
 		return err
 	}
-	// Delete the group itself
-	err = db.Delete(g).Error
+	// Delete associated items from Item table
+	item := Item{}
+	err = tx.Where("item_type = ? AND item_type_id = ?", "groups", g.Id).Delete(&item).Error
 	if err != nil {
+		tx.Rollback()
 		log.Error(err)
 		return err
 	}
-	return err
+	// Delete associated items from TeamItem table
+	err = tx.Where("item_id = ?", item.Id).Delete(&ItemTeams{}).Error
+	if err != nil {
+		tx.Rollback()
+		log.Error(err)
+		return err
+	}
+
+	// Delete the Group
+	err = tx.Delete(Group{Id: g.Id}).Error
+	if err != nil {
+		tx.Rollback()
+		log.Error(err)
+		return err
+	}
+	err = tx.Commit().Error
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	return nil
 }
 
 func insertTargetIntoGroup(tx *gorm.DB, t Target, gid int64) error {
@@ -327,10 +435,6 @@ func insertTargetIntoGroup(tx *gorm.DB, t Target, gid int64) error {
 		return err
 	}
 	err = tx.Save(&GroupTarget{GroupId: gid, TargetId: t.Id}).Error
-	if err != nil {
-		log.Error(err)
-		return err
-	}
 	if err != nil {
 		log.WithFields(logrus.Fields{
 			"email": t.Email,

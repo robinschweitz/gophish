@@ -1,4 +1,6 @@
 var templates = []
+var teams = []
+var item_type = "templates"
 var icons = {
     "application/vnd.ms-excel": "fa-file-excel-o",
     "text/plain": "fa-file-text-o",
@@ -98,11 +100,16 @@ var deleteTemplate = function (idx) {
                     })
                     .error(function (data) {
                         reject(data.responseJSON.message)
-                    })
+                    })   
+            }).catch(function (error) {
+                Swal.showValidationMessage(
+                    `Request failed: ${error}`
+                );
+                return false;
             })
         }
     }).then(function (result) {
-        if(result.value) {
+        if (result.value) {
             Swal.fire(
                 'Template Deleted!',
                 'This template has been deleted!',
@@ -224,6 +231,68 @@ function edit(idx) {
     })
 }
 
+function view(idx) {
+    $("#modalSubmit").unbind('click').click(function () {
+        save(idx)
+    })
+    $("#html_editor").ckeditor()
+    setupAutocomplete(CKEDITOR.instances["html_editor"])
+    $("#attachmentsTable").show()
+    attachmentsTable = $('#attachmentsTable').DataTable({
+        destroy: true,
+        "order": [
+            [1, "asc"]
+        ],
+        columnDefs: [{
+            orderable: false,
+            targets: "no-sort"
+        }, {
+            sClass: "datatable_hidden",
+            targets: [3, 4]
+        }]
+    });
+    var template = {
+        attachments: []
+    }
+
+    $("#templateModalLabel").text("View Template")
+    template = templates[idx]
+    $("#name").val(template.name)
+    $("#subject").val(template.subject)
+    $("#envelope-sender").val(template.envelope_sender)
+    $("#html_editor").val(template.html)
+    $("#text_editor").val(template.text)
+    attachmentRows = []
+    $.each(template.attachments, function (i, file) {
+        var icon = icons[file.type] || "fa-file-o"
+        // Add the record to the modal
+        attachmentRows.push([
+            '<i class="fa ' + icon + '"></i>',
+            escapeHtml(file.name),
+            '<span class="remove-row"><i class="fa fa-trash-o"></i></span>',
+            file.content,
+            file.type || "application/octet-stream"
+        ])
+    })
+    attachmentsTable.rows.add(attachmentRows).draw()
+    if (template.html.indexOf("{{.Tracker}}") != -1) {
+        $("#use_tracker_checkbox").prop("checked", true)
+    } else {
+        $("#use_tracker_checkbox").prop("checked", false)
+    }
+    // make not Editable
+    $("#modalSubmit").hide()
+    $("#modalImport").hide()
+    $(".attachmentUpload").hide()
+    $(".importEmail").hide()
+    $("#use_tracker_checkbox").attr("disabled", true)
+    $("#name").attr('readonly', true)
+    $("#subject").attr('readonly', true)
+    $("#envelope-sender").attr('readonly', true)
+    $("#text_editor").attr('readonly', true)
+    CKEDITOR.instances["html_editor"].config.readOnly = true
+}
+
 function copy(idx) {
     $("#modalSubmit").unbind('click').click(function () {
         save(-1)
@@ -286,9 +355,9 @@ function importEmail() {
         modalError("No Content Specified!")
     } else {
         api.import_email({
-                content: raw,
-                convert_links: convert_links
-            })
+            content: raw,
+            convert_links: convert_links
+        })
             .success(function (data) {
                 $("#text_editor").val(data.text)
                 $("#html_editor").val(data.html)
@@ -312,39 +381,68 @@ function load() {
     $("#loading").show()
     api.templates.get()
         .success(function (ts) {
-            templates = ts
-            $("#loading").hide()
-            if (templates.length > 0) {
-                $("#templateTable").show()
-                templateTable = $("#templateTable").DataTable({
-                    destroy: true,
-                    columnDefs: [{
-                        orderable: false,
-                        targets: "no-sort"
-                    }]
-                });
-                templateTable.clear()
-                templateRows = []
-                $.each(templates, function (i, template) {
-                    templateRows.push([
-                        escapeHtml(template.name),
-                        moment(template.modified_date).format('MMMM Do YYYY, h:mm:ss a'),
-                        "<div class='pull-right'><span data-toggle='modal' data-backdrop='static' data-target='#modal'><button class='btn btn-primary' data-toggle='tooltip' data-placement='left' title='Edit Template' onclick='edit(" + i + ")'>\
-                    <i class='fa fa-pencil'></i>\
-                    </button></span>\
-		    <span data-toggle='modal' data-target='#modal'><button class='btn btn-primary' data-toggle='tooltip' data-placement='left' title='Copy Template' onclick='copy(" + i + ")'>\
-                    <i class='fa fa-copy'></i>\
-                    </button></span>\
-                    <button class='btn btn-danger' data-toggle='tooltip' data-placement='left' title='Delete Template' onclick='deleteTemplate(" + i + ")'>\
-                    <i class='fa fa-trash-o'></i>\
-                    </button></div>"
-                    ])
-                })
-                templateTable.rows.add(templateRows).draw()
-                $('[data-toggle="tooltip"]').tooltip()
-            } else {
-                $("#emptyMessage").show()
-            }
+            api.user.current().success(function (u) {
+                teams = u.teams
+                templates = ts
+                $("#loading").hide()
+                if (templates.length > 0) {
+                    $("#templateTable").show()
+                    templateTable = $("#templateTable").DataTable({
+                        destroy: true,
+                        columnDefs: [{
+                            orderable: false,
+                            targets: "no-sort"
+                        }]
+                    });
+                    templateTable.clear()
+                    templateRows = []
+                    templates = templates.filter((item, index, self) => 
+                    index === self.findIndex((t) => t.id === item.id)
+                    );
+                    
+                    $.each(templates, function (i, template) {
+                        var permissions = {
+                            canDelete : false,
+                            canEdit : false,
+                        };
+                        permissions = CheckTeam(template.teams, u)
+
+                        var isOwner = false;
+                        if (u.id == template.user_id){
+                            var isOwner = true;
+                        }
+                        templateRows.push([
+                            escapeHtml(template.name),
+                            moment(template.modified_date).format('MMMM Do YYYY, h:mm:ss a'),
+                            "<div class='pull-right'>\
+                                <span data-toggle='modal' data-backdrop='static' data-target='#modal'>\
+                                " + (isOwner || permissions.canEdit ? "<button class='btn btn-primary' data-toggle='tooltip' data-placement='left' title='Edit Template' onclick='edit("+ i + ")')>\
+                                <i class='fa fa-pencil'></i>\
+                                </button>" :
+                                "<button class='btn btn-primary' data-toggle='tooltip' data-placement='left' title='View Template' onclick='view("+ i + ")')></i>\
+                                <i class='fa fa-eye'></i>\
+                                </button>") + "\
+                                </span>\
+                                <span data-toggle='modal' data-target='#modal'>\
+                                    <button class='btn btn-primary' data-toggle='tooltip' data-placement='left' title='Copy Template' onclick='copy(" + i + ")'>\
+                                        <i class='fa fa-copy'></i>\
+                                    </button>\
+                                </span>\
+                                <button class='btn " + (isOwner || permissions.canDelete ? "btn-danger" : "btn-secondary disabled") + "' data-toggle='tooltip' data-placement='left' title='" + (isOwner || permissions.canDelete ? "Delete Template" : "You dont have permission to delete this template") + "' " + (isOwner || permissions.canDelete ? "onclick='deleteTemplate(" + i + ")'" : "disabled") + ">\
+                                    <i class='fa fa-trash-o'></i>\
+                                </button>\
+                                <button id='teams_button' type='button' class='btn "+ (isOwner ? "btn-orange" : "btn-secondary disabled") + "' data-toggle='modal' data-backdrop='static' data-target='#team_modal'" + (isOwner ? "onclick='team("+ i + ")'" : "disabled") + "'>\
+                                <i class='fa fa-users'></i> Update teams\
+                                </button>\
+                            </div>"
+                        ])
+                    })
+                    templateTable.rows.add(templateRows).draw()
+                    $('[data-toggle="tooltip"]').tooltip()
+                } else {
+                    $("#emptyMessage").show()
+                }
+            })
         })
         .error(function () {
             $("#loading").hide()
@@ -419,3 +517,7 @@ $(document).ready(function () {
     load()
 
 })
+
+function team(i) {
+    updateItemTeamsAssignment(templates[i], item_type, teams)
+}

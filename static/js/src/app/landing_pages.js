@@ -4,7 +4,8 @@
 	Author: Jordan Wright <github.com/jordan-wright>
 */
 var pages = []
-
+var teams = []
+var item_type = "pages"
 
 // Save attempts to POST to /templates/
 function save(idx) {
@@ -15,6 +16,7 @@ function save(idx) {
     page.capture_credentials = $("#capture_credentials_checkbox").prop("checked")
     page.capture_passwords = $("#capture_passwords_checkbox").prop("checked")
     page.redirect_url = $("#redirect_url_input").val()
+    page.teams = []
     if (idx != -1) {
         page.id = pages[idx].id
         api.pageId.put(page)
@@ -69,6 +71,11 @@ var deletePage = function (idx) {
                     .error(function (data) {
                         reject(data.responseJSON.message)
                     })
+            }).catch(function (error) {
+                Swal.showValidationMessage(
+                    `Request failed: ${error}`
+                );
+                return false;
             })
         }
     }).then(function (result) {
@@ -127,6 +134,44 @@ function edit(idx) {
     } else {
         $("#modalLabel").text("New Landing Page")
     }
+    // make editable
+    $("#capture_credentials_checkbox").attr("disabled", false)
+    $("#capture_passwords_checkbox").attr("disabled", false)
+    $("#name").attr('readonly', false)
+    $("#redirect_url_input").attr('readonly', false)
+    CKEDITOR.instances["html_editor"].config.readOnly = false
+    $("#modalSubmit").show()
+    $("#modalImport").show()
+}
+
+function view(idx) {
+    $("#modalSubmit").unbind('click').click(function () {
+        save(idx)
+    })
+    $("#html_editor").ckeditor()
+    setupAutocomplete(CKEDITOR.instances["html_editor"])
+    var page = {}
+
+    $("#modalLabel").text("View Landing Page")
+    page = pages[idx]
+    $("#name").val(page.name)
+    $("#html_editor").val(page.html)
+    $("#capture_credentials_checkbox").prop("checked", page.capture_credentials)
+    $("#capture_passwords_checkbox").prop("checked", page.capture_passwords)
+    $("#redirect_url_input").val(page.redirect_url)
+    if (page.capture_credentials) {
+        $("#capture_passwords").show()
+        $("#redirect_url").show()
+    }
+    // make not Editable
+    $("#modalSubmit").hide()
+    $("#modalImport").hide()
+    $("#capture_credentials_checkbox").attr("disabled", true)
+    $("#capture_passwords_checkbox").attr("disabled", true)
+    $("#name").attr('readonly', true)
+    $("#redirect_url_input").attr('readonly', true)
+    CKEDITOR.instances["html_editor"].config.readOnly = true
+    
 }
 
 function copy(idx) {
@@ -148,39 +193,69 @@ function load() {
     $("#loading").show()
     api.pages.get()
         .success(function (ps) {
-            pages = ps
-            $("#loading").hide()
-            if (pages.length > 0) {
-                $("#pagesTable").show()
-                pagesTable = $("#pagesTable").DataTable({
-                    destroy: true,
-                    columnDefs: [{
-                        orderable: false,
-                        targets: "no-sort"
-                    }]
-                });
-                pagesTable.clear()
-                pageRows = []
-                $.each(pages, function (i, page) {
-                    pageRows.push([
-                        escapeHtml(page.name),
-                        moment(page.modified_date).format('MMMM Do YYYY, h:mm:ss a'),
-                        "<div class='pull-right'><span data-toggle='modal' data-backdrop='static' data-target='#modal'><button class='btn btn-primary' data-toggle='tooltip' data-placement='left' title='Edit Page' onclick='edit(" + i + ")'>\
-                    <i class='fa fa-pencil'></i>\
-                    </button></span>\
-		    <span data-toggle='modal' data-target='#modal'><button class='btn btn-primary' data-toggle='tooltip' data-placement='left' title='Copy Page' onclick='copy(" + i + ")'>\
-                    <i class='fa fa-copy'></i>\
-                    </button></span>\
-                    <button class='btn btn-danger' data-toggle='tooltip' data-placement='left' title='Delete Page' onclick='deletePage(" + i + ")'>\
-                    <i class='fa fa-trash-o'></i>\
-                    </button></div>"
-                    ])
-                })
-                pagesTable.rows.add(pageRows).draw()
-                $('[data-toggle="tooltip"]').tooltip()
-            } else {
-                $("#emptyMessage").show()
-            }
+            api.user.current().success(function (u) {
+                pages = ps
+                teams = u.teams
+                $("#loading").hide()
+                if (pages.length > 0) {
+                    $("#pagesTable").show()
+                    pagesTable = $("#pagesTable").DataTable({
+                        destroy: true,
+                        columnDefs: [{
+                            orderable: false,
+                            targets: "no-sort"
+                        }]
+                    });
+                    pagesTable.clear()
+                    pageRows = []
+                    pages = pages.filter((item, index, self) => 
+                    index === self.findIndex((t) => t.id === item.id)
+                    );
+                    
+                    $.each(pages, function (i, page) {
+                        var permissions = {
+                            canDelete : false,
+                            canEdit : false,
+                        };
+                        permissions = CheckTeam(page.teams, u)
+
+                        var isOwner = false;
+                        if (u.id == page.user_id){
+                            var isOwner = true;
+                        }
+                        pageRows.push([
+                            escapeHtml(page.name),
+                            moment(page.modified_date).format('MMMM Do YYYY, h:mm:ss a'),
+                            "<div class='pull-right'>\
+                                <span data-toggle='modal' data-backdrop='static' data-target='#modal'>\
+                                " + (isOwner || permissions.canEdit ? "<button class='btn btn-primary' data-toggle='tooltip' data-placement='left' title='Edit Page' onclick='edit("+ i + ")')>\
+                                <i class='fa fa-pencil'></i>\
+                                </button>" :
+                                "<button class='btn btn-primary' data-toggle='tooltip' data-placement='left' title='View Page' onclick='view("+ i + ")')></i>\
+                                <i class='fa fa-eye'></i>\
+                                </button>") + "\
+                                </span>\
+                                <span data-toggle='modal' data-target='#modal'>\
+                                    <button class='btn btn-primary' data-toggle='tooltip' data-placement='left' title='Copy Page' onclick='copy(" + i + ")'>\
+                                        <i class='fa fa-copy'></i>\
+                                    </button>\
+                                </span>\
+                                <button class='btn " + (isOwner || permissions.canDelete ? "btn-danger" : "btn-secondary disabled") + "' data-toggle='tooltip' data-placement='left' title='" + (isOwner || permissions.canDelete ? "Delete Page" : "You dont have permission to delete this page") + "' " + (isOwner || permissions.canDelete ? "onclick='deletePage(" + i + ")'" : "disabled") + ">\
+                                    <i class='fa fa-trash-o'></i>\
+                                </button>\
+                                <button id='teams_button' type='button' class='btn btn-orange' data-toggle='modal' data-backdrop='static' data-target='#team_modal' onclick='team("+ i + ")'>\
+                                <i class='fa fa-users'></i> Update teams\
+                                </button>\
+                            </div>"
+                        ])
+                    })
+                    pagesTable.rows.add(pageRows).draw()
+                    $('[data-toggle="tooltip"]').tooltip()
+                } else {
+                    $("#emptyMessage").show()
+                }
+                // })
+            })
         })
         .error(function () {
             $("#loading").hide()
@@ -256,3 +331,7 @@ $(document).ready(function () {
 
     load()
 })
+
+function team(i) {
+    updateItemTeamsAssignment(pages[i], item_type, teams)
+}

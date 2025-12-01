@@ -145,6 +145,11 @@ function deleteCampaign() {
                     .error(function (data) {
                         reject(data.responseJSON.message)
                     })
+            }).catch(function (error) {
+                Swal.showValidationMessage(
+                    `Request failed: ${error}`
+                );
+                return false;
             })
         }
     }).then(function (result) {
@@ -719,185 +724,214 @@ function poll() {
         })
 }
 
+function checkUser(id) {
+    api.campaignId.get(id)
+        .success(function (c) {
+            api.user.current().success(function (u) {
+                var permissions = {
+                    canDelete : false,
+                    canEdit : false,
+                };
+                permissions = CheckTeam(c.teams, u)
+
+                var isOwner = false;
+                if (u.id == c.user_id){
+                    var isOwner = true;
+                }
+                if (!(isOwner || permissions.canDelete)){
+                    $('#delete_button')[0].disabled = true;
+                }
+                if (!(isOwner || permissions.canEdit)){
+                    $('#complete_button')[0].disabled = true;
+                }
+            })
+        })
+        .error(function () {
+            $("#loading").hide()
+            errorFlash("Error while getting user")
+        })
+}
+
 function load() {
     campaign.id = window.location.pathname.split('/').slice(-1)[0]
     var use_map = JSON.parse(localStorage.getItem('gophish.use_map'))
+    checkUser(campaign.id)
     api.campaignId.results(campaign.id)
         .success(function (c) {
-            campaign = c
-            if (campaign) {
-                $("title").text(c.name + " - Gophish")
-                $("#loading").hide()
-                $("#campaignResults").show()
-                // Set the title
-                $("#page-title").text("Results for " + c.name)
-                if (c.status == "Completed") {
-                    $('#complete_button')[0].disabled = true;
-                    $('#complete_button').text('Completed!');
-                    doPoll = false;
-                }
-                // Setup viewing the details of a result
-                $("#resultsTable").on("click", ".timeline-event-details", function () {
-                    // Show the parameters
-                    payloadResults = $(this).parent().find(".timeline-event-results")
-                    if (payloadResults.is(":visible")) {
-                        $(this).find("i").removeClass("fa-caret-down")
-                        $(this).find("i").addClass("fa-caret-right")
-                        payloadResults.hide()
-                    } else {
-                        $(this).find("i").removeClass("fa-caret-right")
-                        $(this).find("i").addClass("fa-caret-down")
-                        payloadResults.show()
+                campaign = c
+                if (campaign) {
+                    $("title").text(c.name + " - Gophish")
+                    $("#loading").hide()
+                    $("#campaignResults").show()
+                    // Set the title
+                    $("#page-title").text("Results for " + c.name)
+                    if (c.status == "Completed") {
+                        $('#complete_button')[0].disabled = true;
+                        $('#complete_button').text('Completed!');
+                        doPoll = false;
                     }
-                })
-                // Setup the results table
-                resultsTable = $("#resultsTable").DataTable({
-                    destroy: true,
-                    "order": [
-                        [2, "asc"]
-                    ],
-                    columnDefs: [{
-                            orderable: false,
-                            targets: "no-sort"
-                        }, {
-                            className: "details-control",
-                            "targets": [1]
-                        }, {
-                            "visible": false,
-                            "targets": [0, 8]
-                        },
-                        {
-                            "render": function (data, type, row) {
-                                return createStatusLabel(data, row[8])
+                    // Setup viewing the details of a result
+                    $("#resultsTable").on("click", ".timeline-event-details", function () {
+                        // Show the parameters
+                        payloadResults = $(this).parent().find(".timeline-event-results")
+                        if (payloadResults.is(":visible")) {
+                            $(this).find("i").removeClass("fa-caret-down")
+                            $(this).find("i").addClass("fa-caret-right")
+                            payloadResults.hide()
+                        } else {
+                            $(this).find("i").removeClass("fa-caret-right")
+                            $(this).find("i").addClass("fa-caret-down")
+                            payloadResults.show()
+                        }
+                    })
+                    // Setup the results table
+                    resultsTable = $("#resultsTable").DataTable({
+                        destroy: true,
+                        "order": [
+                            [2, "asc"]
+                        ],
+                        columnDefs: [{
+                                orderable: false,
+                                targets: "no-sort"
+                            }, {
+                                className: "details-control",
+                                "targets": [1]
+                            }, {
+                                "visible": false,
+                                "targets": [0, 8]
                             },
-                            "targets": [6]
-                        },
-                        {
-                            className: "text-center",
-                            "render": function (reported, type, row) {
-                                if (type == "display") {
-                                    if (reported) {
-                                        return "<i class='fa fa-check-circle text-center text-success'></i>"
+                            {
+                                "render": function (data, type, row) {
+                                    return createStatusLabel(data, row[8])
+                                },
+                                "targets": [6]
+                            },
+                            {
+                                className: "text-center",
+                                "render": function (reported, type, row) {
+                                    if (type == "display") {
+                                        if (reported) {
+                                            return "<i class='fa fa-check-circle text-center text-success'></i>"
+                                        }
+                                        return "<i role='button' class='fa fa-times-circle text-center text-muted' onclick='report_mail(\"" + row[0] + "\", \"" + campaign.id + "\");'></i>"
                                     }
-                                    return "<i role='button' class='fa fa-times-circle text-center text-muted' onclick='report_mail(\"" + row[0] + "\", \"" + campaign.id + "\");'></i>"
-                                }
-                                return reported
-                            },
-                            "targets": [7]
+                                    return reported
+                                },
+                                "targets": [7]
+                            }
+                        ]
+                    });
+                    resultsTable.clear();
+                    var email_series_data = {}
+                    var timeline_series_data = []
+                    Object.keys(statusMapping).forEach(function (k) {
+                        email_series_data[k] = 0
+                    });
+                    $.each(campaign.results, function (i, result) {
+                        resultsTable.row.add([
+                            result.id,
+                            "<i id=\"caret\" class=\"fa fa-caret-right\"></i>",
+                            escapeHtml(result.first_name) || "",
+                            escapeHtml(result.last_name) || "",
+                            escapeHtml(result.email) || "",
+                            escapeHtml(result.position) || "",
+                            result.status,
+                            result.reported,
+                            moment(result.send_date).format('MMMM Do YYYY, h:mm:ss a')
+                        ])
+                        email_series_data[result.status]++;
+                        if (result.reported) {
+                            email_series_data['Email Reported']++
                         }
-                    ]
-                });
-                resultsTable.clear();
-                var email_series_data = {}
-                var timeline_series_data = []
-                Object.keys(statusMapping).forEach(function (k) {
-                    email_series_data[k] = 0
-                });
-                $.each(campaign.results, function (i, result) {
-                    resultsTable.row.add([
-                        result.id,
-                        "<i id=\"caret\" class=\"fa fa-caret-right\"></i>",
-                        escapeHtml(result.first_name) || "",
-                        escapeHtml(result.last_name) || "",
-                        escapeHtml(result.email) || "",
-                        escapeHtml(result.position) || "",
-                        result.status,
-                        result.reported,
-                        moment(result.send_date).format('MMMM Do YYYY, h:mm:ss a')
-                    ])
-                    email_series_data[result.status]++;
-                    if (result.reported) {
-                        email_series_data['Email Reported']++
-                    }
-                    // Backfill status values
-                    var step = progressListing.indexOf(result.status)
-                    for (var i = 0; i < step; i++) {
-                        email_series_data[progressListing[i]]++
-                    }
-                })
-                resultsTable.draw();
-                // Setup tooltips
-                $('[data-toggle="tooltip"]').tooltip()
-                // Setup the individual timelines
-                $('#resultsTable tbody').on('click', 'td.details-control', function () {
-                    var tr = $(this).closest('tr');
-                    var row = resultsTable.row(tr);
-                    if (row.child.isShown()) {
-                        // This row is already open - close it
-                        row.child.hide();
-                        tr.removeClass('shown');
-                        $(this).find("i").removeClass("fa-caret-down")
-                        $(this).find("i").addClass("fa-caret-right")
-                    } else {
-                        // Open this row
-                        $(this).find("i").removeClass("fa-caret-right")
-                        $(this).find("i").addClass("fa-caret-down")
-                        row.child(renderTimeline(row.data())).show();
-                        tr.addClass('shown');
-                    }
-                });
-                // Setup the graphs
-                $.each(campaign.timeline, function (i, event) {
-                    if (event.message == "Campaign Created") {
-                        return true
-                    }
-                    var event_date = moment.utc(event.time).local()
-                    timeline_series_data.push({
-                        email: event.email,
-                        message: event.message,
-                        x: event_date.valueOf(),
-                        y: 1,
-                        marker: {
-                            fillColor: statuses[event.message].color
+                        // Backfill status values
+                        var step = progressListing.indexOf(result.status)
+                        for (var i = 0; i < step; i++) {
+                            email_series_data[progressListing[i]]++
                         }
                     })
-                })
-                renderTimelineChart({
-                    data: timeline_series_data
-                })
-                $.each(email_series_data, function (status, count) {
-                    var email_data = []
-                    if (!(status in statusMapping)) {
-                        return true
-                    }
-                    email_data.push({
-                        name: status,
-                        y: Math.floor((count / campaign.results.length) * 100),
-                        count: count
-                    })
-                    email_data.push({
-                        name: '',
-                        y: 100 - Math.floor((count / campaign.results.length) * 100)
-                    })
-                    var chart = renderPieChart({
-                        elemId: statusMapping[status] + '_chart',
-                        title: status,
-                        name: status,
-                        data: email_data,
-                        colors: [statuses[status].color, '#dddddd']
-                    })
-                })
-
-                if (use_map) {
-                    $("#resultsMapContainer").show()
-                    map = new Datamap({
-                        element: document.getElementById("resultsMap"),
-                        responsive: true,
-                        fills: {
-                            defaultFill: "#ffffff",
-                            point: "#283F50"
-                        },
-                        geographyConfig: {
-                            highlightFillColor: "#1abc9c",
-                            borderColor: "#283F50"
-                        },
-                        bubblesConfig: {
-                            borderColor: "#283F50"
+                    resultsTable.draw();
+                    // Setup tooltips
+                    $('[data-toggle="tooltip"]').tooltip()
+                    // Setup the individual timelines
+                    $('#resultsTable tbody').on('click', 'td.details-control', function () {
+                        var tr = $(this).closest('tr');
+                        var row = resultsTable.row(tr);
+                        if (row.child.isShown()) {
+                            // This row is already open - close it
+                            row.child.hide();
+                            tr.removeClass('shown');
+                            $(this).find("i").removeClass("fa-caret-down")
+                            $(this).find("i").addClass("fa-caret-right")
+                        } else {
+                            // Open this row
+                            $(this).find("i").removeClass("fa-caret-right")
+                            $(this).find("i").addClass("fa-caret-down")
+                            row.child(renderTimeline(row.data())).show();
+                            tr.addClass('shown');
                         }
                     });
+                    // Setup the graphs
+                    $.each(campaign.timeline, function (i, event) {
+                        if (event.message == "Campaign Created") {
+                            return true
+                        }
+                        var event_date = moment.utc(event.time).local()
+                        timeline_series_data.push({
+                            email: event.email,
+                            message: event.message,
+                            x: event_date.valueOf(),
+                            y: 1,
+                            marker: {
+                                fillColor: statuses[event.message].color
+                            }
+                        })
+                    })
+                    renderTimelineChart({
+                        data: timeline_series_data
+                    })
+                    $.each(email_series_data, function (status, count) {
+                        var email_data = []
+                        if (!(status in statusMapping)) {
+                            return true
+                        }
+                        email_data.push({
+                            name: status,
+                            y: Math.floor((count / campaign.results.length) * 100),
+                            count: count
+                        })
+                        email_data.push({
+                            name: '',
+                            y: 100 - Math.floor((count / campaign.results.length) * 100)
+                        })
+                        var chart = renderPieChart({
+                            elemId: statusMapping[status] + '_chart',
+                            title: status,
+                            name: status,
+                            data: email_data,
+                            colors: [statuses[status].color, '#dddddd']
+                        })
+                    })
+
+                    if (use_map) {
+                        $("#resultsMapContainer").show()
+                        map = new Datamap({
+                            element: document.getElementById("resultsMap"),
+                            responsive: true,
+                            fills: {
+                                defaultFill: "#ffffff",
+                                point: "#283F50"
+                            },
+                            geographyConfig: {
+                                highlightFillColor: "#1abc9c",
+                                borderColor: "#283F50"
+                            },
+                            bubblesConfig: {
+                                borderColor: "#283F50"
+                            }
+                        });
+                    }
+                    updateMap(campaign.results)
                 }
-                updateMap(campaign.results)
-            }
         })
         .error(function () {
             $("#loading").hide()
@@ -960,14 +994,62 @@ function report_mail(rid, cid) {
     })
 }
 
+function dismiss() {
+    $("#modal\\.flashes").empty();
+    $("#name").val("");
+}
+
 $(document).ready(function () {
-    Highcharts.setOptions({
-        global: {
-            useUTC: false
-        }
-    })
     load();
 
     // Start the polling loop
     setRefresh = setTimeout(refresh, 60000)
+
+    // Setup multiple modals
+    // Code based on http://miles-by-motorcycle.com/static/bootstrap-modal/index.html
+    $('.modal').on('hidden.bs.modal', function (event) {
+        $(this).removeClass('fv-modal-stack');
+        $('body').data('fv_open_modals', $('body').data('fv_open_modals') - 1);
+    });
+    $('.modal').on('shown.bs.modal', function (event) {
+        // Keep track of the number of open modals
+        if (typeof ($('body').data('fv_open_modals')) == 'undefined') {
+            $('body').data('fv_open_modals', 0);
+        }
+        // if the z-index of this modal has been set, ignore.
+        if ($(this).hasClass('fv-modal-stack')) {
+            return;
+        }
+        $(this).addClass('fv-modal-stack');
+        // Increment the number of open modals
+        $('body').data('fv_open_modals', $('body').data('fv_open_modals') + 1);
+        // Setup the appropriate z-index
+        $(this).css('z-index', 1040 + (10 * $('body').data('fv_open_modals')));
+        $('.modal-backdrop').not('.fv-modal-stack').css('z-index', 1039 + (10 * $('body').data('fv_open_modals')));
+        $('.modal-backdrop').not('fv-modal-stack').addClass('fv-modal-stack');
+    });
+    // above not needed
+
+    $(document).on('hidden.bs.modal', '.modal', function () {
+        $('.modal:visible').length && $(document.body).addClass('modal-open');
+    });
+    $('#modal').on('hidden.bs.modal', function (event) {
+        dismiss();
+    });
+
+    // Select2 Defaults
+    $.fn.select2.defaults.set("width", "100%");
+    $.fn.select2.defaults.set("dropdownParent", $("#modal_body"));
+    $.fn.select2.defaults.set("theme", "bootstrap");
+    $.fn.select2.defaults.set("sorter", function (data) {
+        return data.sort(function (a, b) {
+            if (a.text.toLowerCase() > b.text.toLowerCase()) {
+                return 1;
+            }
+            if (a.text.toLowerCase() < b.text.toLowerCase()) {
+                return -1;
+            }
+            return 0;
+        });
+    })
 })

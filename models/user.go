@@ -11,6 +11,7 @@ import (
 // user account with the Admin role in such a way that there will be no user
 // accounts left in Gophish with that role.
 var ErrModifyingOnlyAdmin = errors.New("Cannot remove the only administrator")
+var ErrAttached = errors.New("Some of the templates of the users are still attached to scenarios or campaigns")
 
 // User represents the user model for gophish.
 type User struct {
@@ -23,28 +24,42 @@ type User struct {
 	PasswordChangeRequired bool      `json:"password_change_required"`
 	AccountLocked          bool      `json:"account_locked"`
 	LastLogin              time.Time `json:"last_login"`
+	Teams                  []Team    `json:"teams" gorm:"many2many:team_users;"`
+	Items                  []Item
+}
+
+type UserSummary struct {
+	Id       int64  `json:"id"`
+	Username string `json:"username"`
+	Role     Role   `json:"role"`
 }
 
 // GetUser returns the user that the given id corresponds to. If no user is found, an
 // error is thrown.
 func GetUser(id int64) (User, error) {
 	u := User{}
-	err := db.Preload("Role").Where("id=?", id).First(&u).Error
+
+	err := db.Preload("Role").Preload("Teams.Role").Preload("Teams.Users").Find(&u, id).Error
 	return u, err
 }
 
 // GetUsers returns the users registered in Gophish
 func GetUsers() ([]User, error) {
 	us := []User{}
-	err := db.Preload("Role").Find(&us).Error
+
+	err := db.Preload("Role").Preload("Teams.Role").Find(&us).Error
+
 	return us, err
 }
 
 // GetUserByAPIKey returns the user that the given API Key corresponds to. If no user is found, an
 // error is thrown.
 func GetUserByAPIKey(key string) (User, error) {
+
 	u := User{}
-	err := db.Preload("Role").Where("api_key = ?", key).First(&u).Error
+
+	err := db.Preload("Role").Preload("Teams.Role").Find(&u, "api_key = ?", key).Error
+
 	return u, err
 }
 
@@ -52,14 +67,21 @@ func GetUserByAPIKey(key string) (User, error) {
 // error is thrown.
 func GetUserByUsername(username string) (User, error) {
 	u := User{}
-	err := db.Preload("Role").Where("username = ?", username).First(&u).Error
+	err := db.Preload("Role").Preload("Teams.Role").Find(&u, "username = ?", username).Error
+
 	return u, err
 }
 
 // PutUser updates the given user
 func PutUser(u *User) error {
+	// Is needed to prevent the password reset bug
+	u.Teams = []Team{}
 	err := db.Save(u).Error
 	return err
+}
+
+type UserId struct {
+	UserId int64 `json:"-" gorm:"column:user_id"`
 }
 
 // EnsureEnoughAdmins ensures that there is more than one user account in
@@ -103,9 +125,11 @@ func DeleteUser(id int64) error {
 	// Delete the campaigns
 	log.Infof("Deleting campaigns for user ID %d", id)
 	for _, campaign := range campaigns {
-		err = DeleteCampaign(campaign.Id)
-		if err != nil {
-			return err
+		if campaign.UserId == id {
+			err = DeleteCampaign(campaign.Id)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	log.Infof("Deleting pages for user ID %d", id)
@@ -115,9 +139,14 @@ func DeleteUser(id int64) error {
 		return err
 	}
 	for _, page := range pages {
-		err = DeletePage(page.Id, id)
-		if err != nil {
-			return err
+		if page.UserId == id {
+			if (GetPageScenariosCount(page.Id) >= 1){
+				return ErrAttached
+			}
+			err = DeletePage(page.Id, id)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	// Delete the templates
@@ -127,9 +156,31 @@ func DeleteUser(id int64) error {
 		return err
 	}
 	for _, template := range templates {
-		err = DeleteTemplate(template.Id, id)
-		if err != nil {
-			return err
+		if template.UserId == id {
+			if (GetTemplateScenariosCount(template.Id) >= 1){
+				return ErrAttached
+			}
+			err = DeleteTemplate(template.Id, id)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	// Delete the scenario
+	log.Infof("Deleting scenarios for user ID %d", id)
+	scenarios, err := GetScenarios(id)
+	if err != nil {
+		return err
+	}
+	for _, scenario := range scenarios {
+		if scenario.UserId == id {
+			if (GetScenarioCampaignsCount(scenario.Id) >= 1){
+				return ErrAttached
+			}
+			err = DeleteScenario(scenario.Id)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	// Delete the groups
@@ -139,9 +190,11 @@ func DeleteUser(id int64) error {
 		return err
 	}
 	for _, group := range groups {
-		err = DeleteGroup(&group)
-		if err != nil {
-			return err
+		if group.UserId == id {
+			err = DeleteGroup(&group)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	// Delete the sending profiles
@@ -151,12 +204,46 @@ func DeleteUser(id int64) error {
 		return err
 	}
 	for _, profile := range profiles {
-		err = DeleteSMTP(profile.Id, id)
-		if err != nil {
-			return err
+		if profile.UserId == id {
+			if (GetSMTPCampaignCount(profile.Id) >= 1){
+				return ErrAttached
+			}
+			err = DeleteSMTP(profile.Id, id)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	// Finally, delete the user
 	err = db.Where("id=?", id).Delete(&User{}).Error
 	return err
+}
+
+func (u *User) IsOwnerOfItem(iid int64, item string) (bool, error) {
+
+	uid := UserId{}
+
+	err := db.Table(item).
+		Where("id = ? ", iid).
+		Find(&uid).Error
+	if err != nil {
+		log.Error(err)
+	}
+
+	if uid.UserId == u.Id {
+		return true, nil
+	}
+
+	return false, err
+}
+
+func UserTeams(uid int64) ([]Team, error) {
+
+	user := User{}
+	err := db.Preload("Teams").Find(&user, "id = ?", uid).Error
+	if err != nil {
+		log.Error(err)
+	}
+
+	return user.Teams, err
 }

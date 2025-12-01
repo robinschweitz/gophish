@@ -2,8 +2,11 @@ package models
 
 import (
 	"errors"
+	"math"
+	"math/rand"
 	"net/url"
 	"time"
+	"sort"
 
 	log "github.com/gophish/gophish/logger"
 	"github.com/gophish/gophish/webhook"
@@ -13,24 +16,24 @@ import (
 
 // Campaign is a struct representing a created campaign
 type Campaign struct {
-	Id            int64     `json:"id"`
-	UserId        int64     `json:"-"`
-	Name          string    `json:"name" sql:"not null"`
-	CreatedDate   time.Time `json:"created_date"`
-	LaunchDate    time.Time `json:"launch_date"`
-	SendByDate    time.Time `json:"send_by_date"`
-	CompletedDate time.Time `json:"completed_date"`
-	TemplateId    int64     `json:"-"`
-	Template      Template  `json:"template"`
-	PageId        int64     `json:"-"`
-	Page          Page      `json:"page"`
-	Status        string    `json:"status"`
-	Results       []Result  `json:"results,omitempty"`
-	Groups        []Group   `json:"groups,omitempty"`
-	Events        []Event   `json:"timeline,omitempty"`
-	SMTPId        int64     `json:"-"`
-	SMTP          SMTP      `json:"smtp"`
-	URL           string    `json:"url"`
+	Id            int64         `json:"id"`
+	UserId        int64         `json:"user_id"`
+	Name          string        `json:"name" sql:"not null"`
+	CreatedDate   time.Time     `json:"created_date"`
+	LaunchDate    time.Time     `json:"launch_date"`
+	SendByDate    time.Time     `json:"send_by_date"`
+	CompletedDate time.Time     `json:"completed_date"`
+	Scenarios     []Scenario    `json:"scenarios" gorm:"many2many:campaign_scenarios;"`
+	Status        string        `json:"status"`
+	Results       []Result      `json:"results,omitempty"`
+	Groups        []Group       `json:"groups,omitempty" gorm:"-"`
+	Events        []Event       `json:"timeline,omitempty"`
+	SMTPId        int64         `json:"-"`
+	SMTP          SMTP          `json:"smtp"`
+	Item          Item          `json:"-" gorm:"ForeignKey:item_type_id"`
+	Teams         []TeamSummary `json:"teams" gorm:"-"`
+	StartTime     time.Time     `json:"start_time"`
+	EndTime       time.Time     `json:"end_time"`
 }
 
 // CampaignResults is a struct representing the results from a campaign
@@ -51,6 +54,7 @@ type CampaignSummaries struct {
 // CampaignSummary is a struct representing the overview of a single camaign
 type CampaignSummary struct {
 	Id            int64         `json:"id"`
+	UserId        int64         `json:"user_id"`
 	CreatedDate   time.Time     `json:"created_date"`
 	LaunchDate    time.Time     `json:"launch_date"`
 	SendByDate    time.Time     `json:"send_by_date"`
@@ -58,6 +62,7 @@ type CampaignSummary struct {
 	Status        string        `json:"status"`
 	Name          string        `json:"name"`
 	Stats         CampaignStats `json:"stats"`
+	Teams         []TeamSummary `json:"teams" gorm:"-"`
 }
 
 // CampaignStats is a struct representing the statistics for a single campaign
@@ -69,6 +74,27 @@ type CampaignStats struct {
 	SubmittedData int64 `json:"submitted_data"`
 	EmailReported int64 `json:"email_reported"`
 	Error         int64 `json:"error"`
+}
+
+// CampaignTeams is used for a many-to-many relationship between 1..* Campaigns and 1..* Teams
+type CampaignTeams struct {
+	CampaignId int64 `json:"-"`
+	TeamId     int64 `json:"-"`
+}
+
+// Added CampaignMailContext to allow Campaign specific Mail Context to be different from Scenario Context
+type CampaignMailContext struct {
+	Id         int64    `json:"id"`
+	TemplateId int64    `json:"-"`
+	Template   Template `json:"template"`
+	SMTPId     int64    `json:"-"`
+	SMTP       SMTP     `json:"smtp" gorm:"-"`
+	Status     string   `json:"status"`
+	Results    []Result `json:"results,omitempty"`
+	Groups     []Group  `json:"groups,omitempty"`
+	Events     []Event  `json:"timeline,omitempty"`
+	URL        string   `json:"url"`
+	UserId     int64    `json:"-"`
 }
 
 // Event contains the fields for an event
@@ -95,6 +121,15 @@ type EventError struct {
 	Error string `json:"error"`
 }
 
+type Assignment struct {
+	Scenario Scenario
+	Template Template
+}
+type Recipient struct {
+	Recipient   Target
+	Assignments []Assignment
+}
+
 // ErrCampaignNameNotSpecified indicates there was no template given by the user
 var ErrCampaignNameNotSpecified = errors.New("Campaign name not specified")
 
@@ -113,6 +148,9 @@ var ErrSMTPNotSpecified = errors.New("No sending profile specified")
 // ErrTemplateNotFound indicates the template specified does not exist in the database
 var ErrTemplateNotFound = errors.New("Template not found")
 
+// ErrScenarioNotFound indicates the scenario specified does not exist in the database
+var ErrScenarioNotFound = errors.New("Scenario not found")
+
 // ErrGroupNotFound indicates a group specified by the user does not exist in the database
 var ErrGroupNotFound = errors.New("Group not found")
 
@@ -126,6 +164,9 @@ var ErrSMTPNotFound = errors.New("Sending profile not found")
 // launch date
 var ErrInvalidSendByDate = errors.New("The launch date must be before the \"send emails by\" date")
 
+// ErrNoWorkingDays indicates that there are no working days in the given timeframe
+var ErrNoWorkingDays = errors.New("There are no working days in the given timeframe")
+
 // RecipientParameter is the URL parameter that points to the result ID for a recipient.
 const RecipientParameter = "rid"
 
@@ -136,11 +177,9 @@ func (c *Campaign) Validate() error {
 		return ErrCampaignNameNotSpecified
 	case len(c.Groups) == 0:
 		return ErrGroupNotSpecified
-	case c.Template.Name == "":
-		return ErrTemplateNotSpecified
-	case c.Page.Name == "":
-		return ErrPageNotSpecified
-	case c.SMTP.Name == "":
+	case len(c.Scenarios) == 0:
+		return ErrScenarioNotFound
+	case c.SMTP.Id == 0:
 		return ErrSMTPNotSpecified
 	case !c.SendByDate.IsZero() && !c.LaunchDate.IsZero() && c.SendByDate.Before(c.LaunchDate):
 		return ErrInvalidSendByDate
@@ -150,6 +189,12 @@ func (c *Campaign) Validate() error {
 
 // UpdateStatus changes the campaign status appropriately
 func (c *Campaign) UpdateStatus(s string) error {
+	// This could be made simpler, but I think there's a bug in gorm
+	return db.Table("campaigns").Where("id=?", c.Id).Update("status", s).Error
+}
+
+// UpdateStatus changes the campaign status appropriately
+func (c *CampaignMailContext) UpdateStatus(s string) error {
 	// This could be made simpler, but I think there's a bug in gorm
 	return db.Table("campaigns").Where("id=?", c.Id).Update("status", s).Error
 }
@@ -181,6 +226,7 @@ func AddEvent(e *Event, campaignID int64) error {
 // an error is returned. Otherwise, the attribute name is set to [Deleted],
 // indicating the user deleted the attribute (template, smtp, etc.)
 func (c *Campaign) getDetails() error {
+
 	err := db.Model(c).Related(&c.Results).Error
 	if err != nil {
 		log.Warnf("%s: results not found for campaign", err)
@@ -191,26 +237,10 @@ func (c *Campaign) getDetails() error {
 		log.Warnf("%s: events not found for campaign", err)
 		return err
 	}
-	err = db.Table("templates").Where("id=?", c.TemplateId).Find(&c.Template).Error
+	err = db.Preload("Scenarios.Templates").Preload("Scenarios.Templates.Attachments").First(&c, c.Id).Error
 	if err != nil {
-		if err != gorm.ErrRecordNotFound {
-			return err
-		}
-		c.Template = Template{Name: "[Deleted]"}
-		log.Warnf("%s: template not found for campaign", err)
-	}
-	err = db.Where("template_id=?", c.Template.Id).Find(&c.Template.Attachments).Error
-	if err != nil && err != gorm.ErrRecordNotFound {
-		log.Warn(err)
+		log.Warnf("%s: scenarios not found for campaign", err)
 		return err
-	}
-	err = db.Table("pages").Where("id=?", c.PageId).Find(&c.Page).Error
-	if err != nil {
-		if err != gorm.ErrRecordNotFound {
-			return err
-		}
-		c.Page = Page{Name: "[Deleted]"}
-		log.Warnf("%s: page not found for campaign", err)
 	}
 	err = db.Table("smtp").Where("id=?", c.SMTPId).Find(&c.SMTP).Error
 	if err != nil {
@@ -226,12 +256,13 @@ func (c *Campaign) getDetails() error {
 		log.Warn(err)
 		return err
 	}
+
 	return nil
 }
 
 // getBaseURL returns the Campaign's configured URL.
 // This is used to implement the TemplateContext interface.
-func (c *Campaign) getBaseURL() string {
+func (c *CampaignMailContext) getBaseURL() string {
 	return c.URL
 }
 
@@ -241,25 +272,102 @@ func (c *Campaign) getFromAddress() string {
 	return c.SMTP.FromAddress
 }
 
-// generateSendDate creates a sendDate
-func (c *Campaign) generateSendDate(idx int, totalRecipients int) time.Time {
-	// If no send date is specified, just return the launch date
-	if c.SendByDate.IsZero() || c.SendByDate.Equal(c.LaunchDate) {
+func (c *CampaignMailContext) getFromAddress() string {
+	return c.SMTP.FromAddress
+}
+
+func (c *Campaign) assignSendDate(idx int, timeSlots []time.Time) time.Time {
+	if c.SendByDate.IsZero() {
 		return c.LaunchDate
 	}
-	// Otherwise, we can calculate the range of minutes to send emails
-	// (since we only poll once per minute)
-	totalMinutes := c.SendByDate.Sub(c.LaunchDate).Minutes()
+	// Using the idx of the recipient we can assign the timeSlot
+	return timeSlots[idx]
+}
 
-	// Next, we can determine how many minutes should elapse between emails
-	minutesPerEmail := totalMinutes / float64(totalRecipients)
+// Generates timeSlots. When timeSlots are generated the startHour and endHour defined at Campaign creation is ignored, but instead only whole days between 9 to 5 are regarded.
+func (c *Campaign) generateTimeSlots(totalRecipients int) []time.Time {
+	// For future proofing i added the startDate and endDate. Should they change the parameter c.LaunchDate or c.SendByDate we only need to edit it here.
+	startDate := time.Date(c.LaunchDate.Local().Year(), c.LaunchDate.Local().Month(), c.LaunchDate.Local().Day(), 0, 0, 0, 0, time.Local)
+	endDate := time.Date(c.SendByDate.Local().Year(), c.SendByDate.Local().Month(), c.SendByDate.Local().Day(), 0, 0, 0, 0, time.Local)
+	// Calculate the duration of each day in which we can send Emails
+	durationPerDay := c.EndTime.Sub(c.StartTime)
 
-	// Then, we can calculate the offset for this particular email
-	offset := int(minutesPerEmail * float64(idx))
+	weekendDays := 0
+	var weekdaysList []time.Time
+	var timeSlots []time.Time
 
-	// Finally, we can just add this offset to the launch date to determine
-	// when the email should be sent
-	return c.LaunchDate.Add(time.Duration(offset) * time.Minute)
+	// Check which days in the given Timeframe are Workdays
+	for date := startDate; !date.After(endDate); date = date.AddDate(0, 0, 1) {
+		weekday := date.Weekday()
+		if weekday == time.Saturday || weekday == time.Sunday {
+			weekendDays++
+		} else {
+			weekdaysList = append(weekdaysList, date)
+		}
+	}
+
+	// If the given Timeframe has no workdays the empty timeSlots slice gets returned.
+	if len(weekdaysList) < 1 {
+		return timeSlots
+	}
+
+	// Calculate the number of recipients per day
+	recipientsPerDate := totalRecipients / len(weekdaysList)
+	remainingRecipients := totalRecipients % len(weekdaysList)
+
+	// Create a dictionary to store the recipients count for each date
+	recipientsCountByDate := make(map[time.Time]int)
+
+	// Assign the even number of recipients to each date
+	for _, date := range weekdaysList {
+		recipientsCountByDate[date] = recipientsPerDate
+	}
+
+	currentWeekday := 0
+	// Assign the remaining recipients to the first few dates
+	if remainingRecipients >= 1 {
+		dateOffset := int(math.Max(1, float64(len(weekdaysList)/remainingRecipients)))
+
+		for i := 0; i < remainingRecipients; i++ {
+			recipientsCountByDate[weekdaysList[currentWeekday]] += 1
+			currentWeekday += dateOffset
+		}
+	}
+
+	// Create the timeSlots for all days / all recipients
+	for date, count := range recipientsCountByDate {
+		// Set the first time for the day
+		currentTime := date.Add(time.Duration(c.StartTime.Hour()) * time.Hour)
+		endTime := time.Date(currentTime.Year(), currentTime.Month(), currentTime.Day(), c.EndTime.Hour(), 0, 0, 0, time.Local)
+
+		// Calculate the offset between each recipients in seconds
+		offset := float64(durationPerDay) / float64(count) // offset as float in h
+		timeBetweenRecipients := time.Duration(offset)
+
+		// Create the time slots for this day
+		for i := 0; i < count; i++ {
+			// Create a jitter so that Emails get send more random
+			randomDuration := time.Duration(rand.Int63n(int64(timeBetweenRecipients)))
+
+			// Add jitter to currentTime
+			mailTime := currentTime.Add(randomDuration)
+			if mailTime.After(endTime) {
+				// make mailTime maximal endTime
+				mailTime = endTime
+			}
+
+			// Iterate to the next time
+			currentTime = currentTime.Add(timeBetweenRecipients)
+			// Append the timeSlot to the timeSlots list
+			timeSlots = append(timeSlots, mailTime.UTC())
+		}
+	}
+	// Sort timeSlots
+	sort.Slice(timeSlots, func(i, j int) bool {
+        return timeSlots[i].Before(timeSlots[j])
+    })
+	// Return the timeSlots so that they can be used
+	return timeSlots
 }
 
 // getCampaignStats returns a CampaignStats object for the campaign with the given campaign ID.
@@ -271,15 +379,15 @@ func getCampaignStats(cid int64) (CampaignStats, error) {
 	if err != nil {
 		return s, err
 	}
-	query.Where("status=?", EventDataSubmit).Count(&s.SubmittedData)
+	err = query.Where("status=?", EventDataSubmit).Count(&s.SubmittedData).Error
 	if err != nil {
 		return s, err
 	}
-	query.Where("status=?", EventClicked).Count(&s.ClickedLink)
+	err = query.Where("status=?", EventClicked).Count(&s.ClickedLink).Error
 	if err != nil {
 		return s, err
 	}
-	query.Where("reported=?", true).Count(&s.EmailReported)
+	err = query.Where("reported=?", true).Count(&s.EmailReported).Error
 	if err != nil {
 		return s, err
 	}
@@ -301,35 +409,68 @@ func getCampaignStats(cid int64) (CampaignStats, error) {
 	return s, err
 }
 
-// GetCampaigns returns the campaigns owned by the given user.
+// GetCampaigns returns the campaigns owned by the given user and accessible by the user's teams.
 func GetCampaigns(uid int64) ([]Campaign, error) {
-	cs := []Campaign{}
-	err := db.Model(&User{Id: uid}).Related(&cs).Error
+
+	// Fetch campaigns accessible by the user's teams
+	campaigns := []Campaign{}
+
+	err := db.Preload("Item", "item_type = ?", "campaigns").Preload("Item.Teams.Users.Teams.Role").Preload("Scenarios").Find(&campaigns).Error
 	if err != nil {
 		log.Error(err)
+		return campaigns, err
 	}
+
+	cs := []Campaign{}
+	// Check if user is allowed to see the campaign. By being the owner or related to it through a team
+	for _, campaign := range campaigns {
+		if campaign.UserId == uid || checkForValue(uid, campaign.Item.Teams) {
+			ts := []TeamSummary{}
+			for _, team := range campaign.Item.Teams {
+				ts = append(ts, convertTeamSummary(team))
+			}
+			campaign.Teams = ts
+			cs = append(cs, campaign)
+		}
+	}
+
+	// Fetch details for each campaign
 	for i := range cs {
 		err = cs[i].getDetails()
 		if err != nil {
 			log.Error(err)
+			return nil, err
 		}
 	}
-	return cs, err
+
+	return cs, nil
 }
 
-// GetCampaignSummaries gets the summary objects for all the campaigns
-// owned by the current user
 func GetCampaignSummaries(uid int64) (CampaignSummaries, error) {
 	overview := CampaignSummaries{}
-	cs := []CampaignSummary{}
-	// Get the basic campaign information
-	query := db.Table("campaigns").Where("user_id = ?", uid)
-	query = query.Select("id, name, created_date, launch_date, send_by_date, completed_date, status")
-	err := query.Scan(&cs).Error
+
+	campaigns, err := GetCampaigns(uid)
 	if err != nil {
 		log.Error(err)
 		return overview, err
 	}
+	cs := []CampaignSummary{}
+
+	for i := range campaigns {
+		c := CampaignSummary{
+			Id:            campaigns[i].Id,
+			UserId:		   campaigns[i].UserId,
+			CreatedDate:   campaigns[i].CreatedDate,
+			LaunchDate:    campaigns[i].LaunchDate,
+			SendByDate:    campaigns[i].SendByDate,
+			CompletedDate: campaigns[i].CompletedDate,
+			Status:        campaigns[i].Status,
+			Name:          campaigns[i].Name,
+			Teams:         campaigns[i].Teams,
+		}
+		cs = append(cs, c)
+	}
+
 	for i := range cs {
 		s, err := getCampaignStats(cs[i].Id)
 		if err != nil {
@@ -345,14 +486,27 @@ func GetCampaignSummaries(uid int64) (CampaignSummaries, error) {
 
 // GetCampaignSummary gets the summary object for a campaign specified by the campaign ID
 func GetCampaignSummary(id int64, uid int64) (CampaignSummary, error) {
+	// Fetch campaigns accessible by the user's teams
 	cs := CampaignSummary{}
-	query := db.Table("campaigns").Where("user_id = ? AND id = ?", uid, id)
-	query = query.Select("id, name, created_date, launch_date, send_by_date, completed_date, status")
-	err := query.Scan(&cs).Error
+
+	campaign, err := GetCampaign(id, uid)
 	if err != nil {
 		log.Error(err)
 		return cs, err
 	}
+
+	cs = CampaignSummary{
+		Id:            campaign.Id,
+		UserId:		   campaign.UserId,
+		CreatedDate:   campaign.CreatedDate,
+		LaunchDate:    campaign.LaunchDate,
+		SendByDate:    campaign.SendByDate,
+		CompletedDate: campaign.CompletedDate,
+		Status:        campaign.Status,
+		Name:          campaign.Name,
+		Teams:         campaign.Teams,
+	}
+
 	s, err := getCampaignStats(cs.Id)
 	if err != nil {
 		log.Error(err)
@@ -362,14 +516,38 @@ func GetCampaignSummary(id int64, uid int64) (CampaignSummary, error) {
 	return cs, nil
 }
 
-// GetCampaignMailContext returns a campaign object with just the relevant
-// data needed to generate and send emails. This includes the top-level
-// metadata, the template, and the sending profile.
-//
-// This should only ever be used if you specifically want this lightweight
-// context, since it returns a non-standard campaign object.
-// ref: #1726
-func GetCampaignMailContext(id int64, uid int64) (Campaign, error) {
+func GetCampaignMailContext(id int64, uid int64, temid int64) (CampaignMailContext, error) {
+	c := Campaign{}
+	cm := CampaignMailContext{}
+	// fetch the Mail Context Information
+	err := db.Preload("Item", "item_type = ?", "campaigns").
+		Preload("Item.Teams.Users.Teams.Role").
+		Preload("Scenarios.Templates.Attachments").
+		Preload("SMTP").
+		Find(&c, "campaigns.id =?", id).
+		Error
+	if err != nil {
+		return cm, err
+	}
+
+	// Check if user is allowed to see the campaign. By being the owner or related to it through a team
+	if !(c.UserId == uid || checkForValue(uid, c.Item.Teams)) {
+		return cm, ErrPageNotFound
+	}
+
+	for _, scenario := range c.Scenarios {
+		for _, template := range scenario.Templates {
+			if template.Id == temid {
+				cm.Template = template
+			}
+		}
+		cm.URL = scenario.URL
+	}
+	cm.SMTP = c.SMTP
+	return cm, nil
+}
+
+func GetCampaignContext(id int64, uid int64) (Campaign, error) {
 	c := Campaign{}
 	err := db.Where("id = ?", id).Where("user_id = ?", uid).Find(&c).Error
 	if err != nil {
@@ -383,50 +561,58 @@ func GetCampaignMailContext(id int64, uid int64) (Campaign, error) {
 	if err != nil && err != gorm.ErrRecordNotFound {
 		return c, err
 	}
-	err = db.Table("templates").Where("id=?", c.TemplateId).Find(&c.Template).Error
-	if err != nil {
-		return c, err
-	}
-	err = db.Where("template_id=?", c.Template.Id).Find(&c.Template.Attachments).Error
-	if err != nil && err != gorm.ErrRecordNotFound {
-		return c, err
-	}
 	return c, nil
 }
 
 // GetCampaign returns the campaign, if it exists, specified by the given id and user_id.
 func GetCampaign(id int64, uid int64) (Campaign, error) {
 	c := Campaign{}
-	err := db.Where("id = ?", id).Where("user_id = ?", uid).Find(&c).Error
+
+	// Fetch Campaign Information
+	err := db.Preload("Item", "item_type = ?", "campaigns").Preload("Item.Teams.Users.Teams.Role").Find(&c, "campaigns.id =?", id).Error
 	if err != nil {
-		log.Errorf("%s: campaign not found", err)
+		log.Error(err)
 		return c, err
 	}
+
+	// Check if User can access the information
+	if !(c.UserId == uid || checkForValue(uid, c.Item.Teams)) {
+		return c, ErrPageNotFound
+	}
+
+	// Convert Team into the correct format
+	ts := []TeamSummary{}
+	for _, team := range c.Item.Teams {
+		ts = append(ts, convertTeamSummary(team))
+	}
+	c.Teams = ts
+
+	// Get Details related to the campaign
 	err = c.getDetails()
-	return c, err
+	if err != nil {
+		log.Error(err)
+		return c, err
+	}
+
+	return c, nil
 }
 
 // GetCampaignResults returns just the campaign results for the given campaign
 func GetCampaignResults(id int64, uid int64) (CampaignResults, error) {
 	cr := CampaignResults{}
-	err := db.Table("campaigns").Where("id=? and user_id=?", id, uid).Find(&cr).Error
+	campaign, err := GetCampaign(id, uid)
 	if err != nil {
-		log.WithFields(logrus.Fields{
-			"campaign_id": id,
-			"error":       err,
-		}).Error(err)
+		log.Error(err)
 		return cr, err
 	}
-	err = db.Table("results").Where("campaign_id=? and user_id=?", cr.Id, uid).Find(&cr.Results).Error
-	if err != nil {
-		log.Errorf("%s: results not found for campaign", err)
-		return cr, err
+
+	cr = CampaignResults{
+		Id:      campaign.Id,
+		Name:    campaign.Name,
+		Events:  campaign.Events,
+		Results: campaign.Results,
 	}
-	err = db.Table("events").Where("campaign_id=?", cr.Id).Find(&cr.Events).Error
-	if err != nil {
-		log.Errorf("%s: events not found for campaign", err)
-		return cr, err
-	}
+
 	return cr, err
 }
 
@@ -470,92 +656,148 @@ func PostCampaign(c *Campaign, uid int64) error {
 	if c.LaunchDate.Before(c.CreatedDate) || c.LaunchDate.Equal(c.CreatedDate) {
 		c.Status = CampaignInProgress
 	}
+	if c.StartTime.IsZero() {
+		c.StartTime = time.Date(c.LaunchDate.Local().Year(), c.LaunchDate.Local().Month(), c.LaunchDate.Local().Day(), 9, 0, 0, 0, time.Local)
+	} else {
+		c.StartTime = c.StartTime.UTC()
+	}
+	if c.EndTime.IsZero() {
+		c.EndTime = time.Date(c.LaunchDate.Local().Year(), c.LaunchDate.Local().Month(), c.LaunchDate.Local().Day(), 17, 0, 0, 0, time.Local)
+	} else {
+		c.EndTime = c.EndTime.UTC()
+	}
 	// Check to make sure all the groups already exist
-	// Also, later we'll need to know the total number of recipients (counting
-	// duplicates is ok for now), so we'll do that here to save a loop.
-	totalRecipients := 0
-	for i, g := range c.Groups {
-		c.Groups[i], err = GetGroupByName(g.Name, uid)
+
+	groups := []Group{}
+	// Get all the Groups assigned to the campaign
+	for _, group := range c.Groups {
+		g, err := GetGroup(group.Id, uid)
 		if err == gorm.ErrRecordNotFound {
 			log.WithFields(logrus.Fields{
-				"group": g.Name,
+				"group": group.Id,
 			}).Error("Group does not exist")
 			return ErrGroupNotFound
 		} else if err != nil {
 			log.Error(err)
 			return err
 		}
-		totalRecipients += len(c.Groups[i].Targets)
+		groups = append(groups, g)
 	}
-	// Check to make sure the template exists
-	t, err := GetTemplateByName(c.Template.Name, uid)
+	c.Groups = append(c.Groups, groups...)
+	// Check to make sure the Scenario exists
+	scenarios := []Scenario{}
+	for _, scenario := range c.Scenarios {
+		s, err := GetScenario(scenario.Id, uid)
+		if err == gorm.ErrRecordNotFound {
+			log.WithFields(logrus.Fields{
+				"scenario": scenario.Id,
+			}).Error("Scenario does not exist")
+			return ErrScenarioNotFound
+		} else if err != nil {
+			log.Error(err)
+			return err
+		}
+		scenarios = append(scenarios, s)
+	}
+	c.Scenarios = append([]Scenario{}, scenarios...)
+	// Get sending Profile
+	s, err := GetSMTP(c.SMTP.Id, uid)
+	log.Info(s)
 	if err == gorm.ErrRecordNotFound {
 		log.WithFields(logrus.Fields{
-			"template": c.Template.Name,
-		}).Error("Template does not exist")
-		return ErrTemplateNotFound
-	} else if err != nil {
-		log.Error(err)
-		return err
-	}
-	c.Template = t
-	c.TemplateId = t.Id
-	// Check to make sure the page exists
-	p, err := GetPageByName(c.Page.Name, uid)
-	if err == gorm.ErrRecordNotFound {
-		log.WithFields(logrus.Fields{
-			"page": c.Page.Name,
-		}).Error("Page does not exist")
-		return ErrPageNotFound
-	} else if err != nil {
-		log.Error(err)
-		return err
-	}
-	c.Page = p
-	c.PageId = p.Id
-	// Check to make sure the sending profile exists
-	s, err := GetSMTPByName(c.SMTP.Name, uid)
-	if err == gorm.ErrRecordNotFound {
-		log.WithFields(logrus.Fields{
-			"smtp": c.SMTP.Name,
+			"smtp": c.SMTP.Id,
 		}).Error("Sending profile does not exist")
 		return ErrSMTPNotFound
 	} else if err != nil {
 		log.Error(err)
 		return err
 	}
+
 	c.SMTP = s
 	c.SMTPId = s.Id
 	// Insert into the DB
-	err = db.Save(c).Error
+	tx := db.Begin()
+	err = tx.Save(&c).Error
 	if err != nil {
+		tx.Rollback()
+		log.Error(err)
+		return err
+	}
+	err = tx.Create(&Item{ItemType: "campaigns", ItemTypeID: c.Id}).Error
+	if err != nil {
+		tx.Rollback()
+		log.Error(err)
+		return err
+	}
+	err = tx.Commit().Error
+	if err != nil {
+		tx.Rollback()
 		log.Error(err)
 		return err
 	}
 	err = AddEvent(&Event{Message: "Campaign Created"}, c.Id)
 	if err != nil {
 		log.Error(err)
+		return err
 	}
 	// Insert all the results
 	resultMap := make(map[string]bool)
-	recipientIndex := 0
-	tx := db.Begin()
+	recipientList := []Target{}
 	for _, g := range c.Groups {
 		// Insert a result for each target in the group
 		for _, t := range g.Targets {
-			// Remove duplicate results - we should only
-			// send emails to unique email addresses.
+			//Remove duplicate results - we should only send emails to unique email addresses.
 			if _, ok := resultMap[t.Email]; ok {
 				continue
 			}
 			resultMap[t.Email] = true
-			sendDate := c.generateSendDate(recipientIndex, totalRecipients)
+			recipientList = append(recipientList, t)
+		}
+	}
+	// Create a list of all (recipient, scenario, template) combinations
+	totalTimeSlotsNeeded := 0
+	recipients := make(map[Target]*Recipient)
+	for _, recipient := range recipientList {
+		var assignments []Assignment
+		for _, scenario := range c.Scenarios {
+			for _, template := range scenario.Templates {
+				assignments = append(assignments, Assignment{Scenario: scenario, Template: template})
+				totalTimeSlotsNeeded += 1
+			}
+		}
+		recipients[recipient] = &Recipient{
+			Recipient: recipient,
+			Assignments: assignments,
+		}
+	}
+
+	// Generate the timeSlots
+	timeSlots := c.generateTimeSlots(totalTimeSlotsNeeded)
+	timeSlotsIndex := 0
+	// Check to make sure enough timeSlots were generated
+	// If timeSlots are smaller than the number of recipients, an error gets thrown
+	if (len(timeSlots) < totalTimeSlotsNeeded) && !(c.SendByDate.IsZero() || c.SendByDate.Equal(c.LaunchDate)) {
+		log.WithFields(logrus.Fields{
+			"timeSlots": len(timeSlots),
+		}).Error("There are no working days in the given timeframe")
+		return ErrNoWorkingDays
+	}
+	for i := 0; i < totalTimeSlotsNeeded/len(recipientList); i++ {
+		for _, recipient := range recipients {
+			// Take a random scenario from the Recipients list of scenarios
+			index := rand.Intn(len(recipient.Assignments))
+			assignment := recipient.Assignments[index]
+			// Remove the scenario for that Recipient
+			recipient.Assignments = append(recipient.Assignments[:index], recipient.Assignments[index+1:]...)
+			tx = db.Begin()
+			// Insert a result for each target in the group
+			sendDate := c.assignSendDate(timeSlotsIndex, timeSlots)
 			r := &Result{
 				BaseRecipient: BaseRecipient{
-					Email:     t.Email,
-					Position:  t.Position,
-					FirstName: t.FirstName,
-					LastName:  t.LastName,
+					Email:     recipient.Recipient.Email,
+					Position:  recipient.Recipient.Position,
+					FirstName: recipient.Recipient.FirstName,
+					LastName:  recipient.Recipient.LastName,
 				},
 				Status:       StatusScheduled,
 				CampaignId:   c.Id,
@@ -563,6 +805,8 @@ func PostCampaign(c *Campaign, uid int64) error {
 				SendDate:     sendDate,
 				Reported:     false,
 				ModifiedDate: c.CreatedDate,
+				ScenarioId:   assignment.Scenario.Id,
+				TemplateId:   assignment.Template.Id,
 			}
 			err = r.GenerateId(tx)
 			if err != nil {
@@ -576,9 +820,10 @@ func PostCampaign(c *Campaign, uid int64) error {
 				processing = true
 			}
 			err = tx.Save(r).Error
+
 			if err != nil {
 				log.WithFields(logrus.Fields{
-					"email": t.Email,
+					"email": recipient.Recipient.Email,
 				}).Errorf("error creating result: %v", err)
 				tx.Rollback()
 				return err
@@ -594,19 +839,23 @@ func PostCampaign(c *Campaign, uid int64) error {
 				RId:        r.RId,
 				SendDate:   sendDate,
 				Processing: processing,
+				ScenarioId: assignment.Scenario.Id,
+				TemplateId: assignment.Template.Id,
 			}
 			err = tx.Save(m).Error
 			if err != nil {
 				log.WithFields(logrus.Fields{
-					"email": t.Email,
+					"email": recipient.Recipient.Email,
 				}).Errorf("error creating maillog entry: %v", err)
 				tx.Rollback()
 				return err
 			}
-			recipientIndex++
+			timeSlotsIndex++
+			tx.Commit()
 		}
 	}
-	return tx.Commit().Error
+
+	return nil
 }
 
 // DeleteCampaign deletes the specified campaign
@@ -614,26 +863,55 @@ func DeleteCampaign(id int64) error {
 	log.WithFields(logrus.Fields{
 		"campaign_id": id,
 	}).Info("Deleting campaign")
+	tx := db.Begin()
 	// Delete all the campaign results
-	err := db.Where("campaign_id=?", id).Delete(&Result{}).Error
+	err := tx.Where("campaign_id=?", id).Delete(&Result{}).Error
 	if err != nil {
+		tx.Rollback()
 		log.Error(err)
 		return err
 	}
-	err = db.Where("campaign_id=?", id).Delete(&Event{}).Error
+	// Delete all the campaign events
+	err = tx.Where("campaign_id=?", id).Delete(&Event{}).Error
 	if err != nil {
+		tx.Rollback()
 		log.Error(err)
 		return err
 	}
-	err = db.Where("campaign_id=?", id).Delete(&MailLog{}).Error
+	// Delete all the campaign mailogs
+	err = tx.Where("campaign_id=?", id).Delete(&MailLog{}).Error
 	if err != nil {
+		tx.Rollback()
+		log.Error(err)
+		return err
+	}
+	// Delete all the campaign item
+	item := Item{}
+	err = tx.Where("item_type = ? AND item_type_id = ?", "campaigns", id).Delete(&item).Error
+	if err != nil {
+		tx.Rollback()
+		log.Error(err)
+		return err
+	}
+	// Delete all the relations between the campaign_item and teams
+	err = tx.Where("item_id = ?", item.Id).Delete(&ItemTeams{}).Error
+	if err != nil {
+		tx.Rollback()
 		log.Error(err)
 		return err
 	}
 	// Delete the campaign
-	err = db.Delete(&Campaign{Id: id}).Error
+	err = tx.Delete(&Campaign{Id: id}).Error
 	if err != nil {
+		tx.Rollback()
 		log.Error(err)
+		return err
+	}
+	// Commit the changes
+	err = tx.Commit().Error
+	if err != nil {
+		tx.Rollback()
+		return err
 	}
 	return err
 }
@@ -661,10 +939,18 @@ func CompleteCampaign(id int64, uid int64) error {
 	// Mark the campaign as complete
 	c.CompletedDate = time.Now().UTC()
 	c.Status = CampaignComplete
-	err = db.Model(&Campaign{}).Where("id=? and user_id=?", id, uid).
+
+	err = db.Model(&Campaign{}).Where("id=?", id).
 		Select([]string{"completed_date", "status"}).UpdateColumns(&c).Error
 	if err != nil {
 		log.Error(err)
 	}
 	return err
+}
+
+// GetSMTPCampaignCount performs a one-to-many select to get all the Campaigns that use this smtp profile
+func GetSMTPCampaignCount(sid int64) int64 {
+	var count int64
+	db.Model(&Campaign{}).Where("smtp_id = ?", sid).Count(&count)
+	return count
 }

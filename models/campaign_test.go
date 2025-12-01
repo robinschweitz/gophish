@@ -52,14 +52,68 @@ func (s *ModelsSuite) TestGenerateSendDate(c *check.C) {
 
 	campaign, _ = GetCampaign(campaign.Id, campaign.UserId)
 
+	_, err = GetMailLogsByCampaign(campaign.Id)
+	c.Assert(err, check.Equals, nil)
+	// ADD CHECK FOR TIME IN THE FUTURE
+}
+
+func (s *ModelsSuite) TestGenerateTimeSlots(c *check.C) {
+	campaign := s.createCampaignDependencies(c)
+	// Test that if no launch date is provided, the campaign's creation date
+	// is used.
+	scenario := s.createScenarioDependencies(c)
+	c.Assert(PostScenario(&scenario, 1), check.Equals, nil)
+	campaign.Scenarios = append(campaign.Scenarios, scenario)
+
+	ms, err := GetMailLogsByCampaign(campaign.Id)
+	c.Assert(err, check.Equals, nil)
+	for _, m := range ms {
+		c.Assert(m.SendDate, check.Equals, campaign.LaunchDate)
+	}
+
+	// Finally, test that if a send date is provided, the emails are staggered
+	// correctly.
+
+	date_str := "2024-01-01T9:00:00.000Z"
+	date_obj, err := time.Parse(time.RFC3339, date_str)
+	c.Assert(err, check.Equals, nil)
+
+	campaign.LaunchDate = date_obj
+	campaign.SendByDate = campaign.LaunchDate.Add(9 * 24 * time.Hour)
+
+	err = PostCampaign(&campaign, campaign.UserId)
+	c.Assert(err, check.Equals, nil)
+
+	resultMap := make(map[string]bool)
+	recipientList := []Target{}
+	for _, g := range campaign.Groups {
+		// Insert a result for each target in the group
+		for _, t := range g.Targets {
+			//Remove duplicate results - we should only send emails to unique email addresses.
+			if _, ok := resultMap[t.Email]; ok {
+				continue
+			}
+			resultMap[t.Email] = true
+			recipientList = append(recipientList, t)
+		}
+	}
+
 	ms, err = GetMailLogsByCampaign(campaign.Id)
 	c.Assert(err, check.Equals, nil)
-	sendingOffset := 2 / float64(len(ms))
-	for i, m := range ms {
-		expectedOffset := int(sendingOffset * float64(i))
-		expectedDate := campaign.LaunchDate.Add(time.Duration(expectedOffset) * time.Minute)
-		c.Assert(m.SendDate, check.Equals, expectedDate)
-	}
+	c.Assert(len(ms), check.Equals, len(campaign.Scenarios)*len(recipientList))
+
+	// ---------------------------------------------------------------------------------
+
+	campaign.Id = campaign.Id + 1
+	campaign.LaunchDate = date_obj
+	campaign.SendByDate = campaign.LaunchDate.Add(3 * 24 * time.Hour)
+
+	err = PostCampaign(&campaign, campaign.UserId)
+	c.Assert(err, check.Equals, nil)
+
+	ms, err = GetMailLogsByCampaign(campaign.Id)
+	c.Assert(err, check.Equals, nil)
+	c.Assert(len(ms), check.Equals, len(campaign.Scenarios)*len(recipientList))
 }
 
 func (s *ModelsSuite) TestCampaignDateValidation(c *check.C) {
@@ -89,6 +143,121 @@ func (s *ModelsSuite) TestCampaignDateValidation(c *check.C) {
 	campaign.SendByDate = campaign.LaunchDate.Add(-1 * time.Minute)
 	err = campaign.Validate()
 	c.Assert(err, check.Equals, ErrInvalidSendByDate)
+}
+
+func (s *ModelsSuite) TestCampaignValidation(c *check.C) {
+	campaign := s.createCampaignDependencies(c)
+
+	campaign.Name = ""
+	err := campaign.Validate()
+	c.Assert(err, check.Equals, ErrCampaignNameNotSpecified)
+
+	campaign.Name = "Test"
+
+	groups := campaign.Groups
+
+	campaign.Groups = make([]Group, 0)
+	err = campaign.Validate()
+	c.Assert(err, check.Equals, ErrGroupNotSpecified)
+
+	campaign.Groups = append(campaign.Groups, groups...)
+
+	scenarios := campaign.Scenarios
+
+	campaign.Scenarios = make([]Scenario, 0)
+	err = campaign.Validate()
+	c.Assert(err, check.Equals, ErrScenarioNotFound)
+
+	campaign.Scenarios = append(campaign.Scenarios, scenarios...)
+
+	smtp := campaign.SMTP
+
+	campaign.SMTP = SMTP{}
+	err = campaign.Validate()
+	c.Assert(err, check.Equals, ErrSMTPNotSpecified)
+
+	campaign.SMTP = smtp
+
+	// If the launch date is specified, then the send date is optional
+	campaign = s.createCampaignDependencies(c)
+	campaign.LaunchDate = time.Now().UTC()
+	err = campaign.Validate()
+	c.Assert(err, check.Equals, nil)
+
+	// If the send date is greater than the launch date, then there's no
+	//problem
+	campaign = s.createCampaignDependencies(c)
+	campaign.LaunchDate = time.Now().UTC()
+	campaign.SendByDate = campaign.LaunchDate.Add(1 * time.Minute)
+	err = campaign.Validate()
+	c.Assert(err, check.Equals, nil)
+
+	// If the send date is less than the launch date, then there's an issue
+	campaign = s.createCampaignDependencies(c)
+	campaign.LaunchDate = time.Now().UTC()
+	campaign.SendByDate = campaign.LaunchDate.Add(-1 * time.Minute)
+	err = campaign.Validate()
+	c.Assert(err, check.Equals, ErrInvalidSendByDate)
+}
+
+func (s *ModelsSuite) TestCampaignStats(c *check.C) {
+	campaign := s.createCampaignDependencies(c)
+	// If both are zero, then the campaign should start immediately with no
+	// send by date
+	err := campaign.Validate()
+	c.Assert(err, check.Equals, nil)
+
+	_, err = getCampaignStats(campaign.Id)
+	c.Assert(err, check.Equals, nil)
+}
+
+func (s *ModelsSuite) TestCampaignSummaries(c *check.C) {
+	campaign := s.createCampaignDependencies(c)
+	// If both are zero, then the campaign should start immediately with no
+	// send by date
+	err := campaign.Validate()
+	c.Assert(err, check.Equals, nil)
+
+	err = PostCampaign(&campaign, campaign.UserId)
+	c.Assert(err, check.Equals, nil)
+
+	css, err := GetCampaignSummaries(campaign.UserId)
+	c.Assert(err, check.Equals, nil)
+	c.Assert(css.Total, check.Equals, int64(1))
+
+	cs, err := GetCampaignSummary(campaign.Id, campaign.UserId)
+	c.Assert(err, check.Equals, nil)
+	c.Assert(cs.Name, check.Equals, campaign.Name)
+}
+
+func (s *ModelsSuite) TestCampaignMailContext(c *check.C) {
+	campaign := s.createCampaignDependencies(c)
+	// If both are zero, then the campaign should start immediately with no
+	// send by date
+	err := campaign.Validate()
+	c.Assert(err, check.Equals, nil)
+
+	err = PostCampaign(&campaign, campaign.UserId)
+	c.Assert(err, check.Equals, nil)
+
+	mc, err := GetCampaignMailContext(campaign.Id, campaign.UserId, campaign.Scenarios[0].Templates[0].Id)
+	c.Assert(err, check.Equals, nil)
+	c.Assert(mc.Template.Id, check.Equals, campaign.Scenarios[0].Templates[0].Id)
+}
+
+func (s *ModelsSuite) TestCampaignResults(c *check.C) {
+	campaign := s.createCampaignDependencies(c)
+	// If both are zero, then the campaign should start immediately with no
+	// send by date
+	err := campaign.Validate()
+	c.Assert(err, check.Equals, nil)
+
+	err = PostCampaign(&campaign, campaign.UserId)
+	c.Assert(err, check.Equals, nil)
+
+	cr, err := GetCampaignResults(campaign.Id, campaign.UserId)
+	c.Assert(err, check.Equals, nil)
+	c.Assert(cr.Id, check.Equals, campaign.Id)
 }
 
 func (s *ModelsSuite) TestLaunchCampaignMaillogStatus(c *check.C) {
@@ -184,6 +353,17 @@ func setupCampaignDependencies(b *testing.B, size int) {
 		b.Fatalf("error posting page: %v", err)
 	}
 
+	// Add a scenario
+	s := Scenario{UserId: 1, Name: "Test Scenario", Description: "Test"}
+	s.URL = "localhost"
+	s.UserId = 1
+	s.Templates = append(s.Templates, template)
+	s.Page = p
+	err = PostScenario(&s, s.UserId)
+	if err != nil {
+		b.Fatalf("error posting scenario: %v", err)
+	}
+
 	// Add a sending profile
 	smtp := SMTP{Name: "Test Page"}
 	smtp.UserId = 1
@@ -201,11 +381,13 @@ func setupCampaign(b *testing.B, size int) Campaign {
 	setupCampaignDependencies(b, size)
 	campaign := Campaign{Name: "Test campaign"}
 	campaign.UserId = 1
-	campaign.Template = Template{Name: "Test Template"}
-	campaign.Page = Page{Name: "Test Page"}
-	campaign.SMTP = SMTP{Name: "Test Page"}
-	campaign.Groups = []Group{Group{Name: "Test Group"}}
-	PostCampaign(&campaign, 1)
+	campaign.Scenarios = append(campaign.Scenarios, Scenario{Id: 1})
+	campaign.SMTP = SMTP{Id: 1, Name: "Test Page"}
+	campaign.Groups = []Group{{Id: 1, Name: "Test Group"}}
+	err := PostCampaign(&campaign, 1)
+	if err != nil {
+		b.Fatalf("error posting campaign: %v", err)
+	}
 	return campaign
 }
 
@@ -216,10 +398,9 @@ func BenchmarkCampaign100(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		campaign := Campaign{Name: "Test campaign"}
 		campaign.UserId = 1
-		campaign.Template = Template{Name: "Test Template"}
-		campaign.Page = Page{Name: "Test Page"}
-		campaign.SMTP = SMTP{Name: "Test Page"}
-		campaign.Groups = []Group{Group{Name: "Test Group"}}
+		campaign.Scenarios = append(campaign.Scenarios, Scenario{Id: 1})
+		campaign.SMTP = SMTP{Id: 1}
+		campaign.Groups = []Group{{Id: 1}}
 
 		b.StartTimer()
 		err := PostCampaign(&campaign, 1)
@@ -241,10 +422,9 @@ func BenchmarkCampaign1000(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		campaign := Campaign{Name: "Test campaign"}
 		campaign.UserId = 1
-		campaign.Template = Template{Name: "Test Template"}
-		campaign.Page = Page{Name: "Test Page"}
-		campaign.SMTP = SMTP{Name: "Test Page"}
-		campaign.Groups = []Group{Group{Name: "Test Group"}}
+		campaign.Scenarios = append(campaign.Scenarios, Scenario{Id: 1})
+		campaign.SMTP = SMTP{Id: 1}
+		campaign.Groups = []Group{{Id: 1}}
 
 		b.StartTimer()
 		err := PostCampaign(&campaign, 1)
@@ -266,10 +446,9 @@ func BenchmarkCampaign10000(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		campaign := Campaign{Name: "Test campaign"}
 		campaign.UserId = 1
-		campaign.Template = Template{Name: "Test Template"}
-		campaign.Page = Page{Name: "Test Page"}
-		campaign.SMTP = SMTP{Name: "Test Page"}
-		campaign.Groups = []Group{Group{Name: "Test Group"}}
+		campaign.Scenarios = append(campaign.Scenarios, Scenario{Id: 1})
+		campaign.SMTP = SMTP{Id: 1}
+		campaign.Groups = []Group{{Id: 1}}
 
 		b.StartTimer()
 		err := PostCampaign(&campaign, 1)

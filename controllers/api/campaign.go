@@ -31,6 +31,13 @@ func (as *Server) Campaigns(w http.ResponseWriter, r *http.Request) {
 			JSONResponse(w, models.Response{Success: false, Message: "Invalid JSON structure"}, http.StatusBadRequest)
 			return
 		}
+		//Check if campaign exists
+		_, err = models.GetCampaign(c.Id, ctx.Get(r, "user_id").(int64))
+		if err != gorm.ErrRecordNotFound {
+			JSONResponse(w, models.Response{Success: false, Message: "Campaign already exists"}, http.StatusConflict)
+			log.Error(err)
+			return
+		}
 		err = models.PostCampaign(&c, ctx.Get(r, "user_id").(int64))
 		if err != nil {
 			JSONResponse(w, models.Response{Success: false, Message: err.Error()}, http.StatusBadRequest)
@@ -126,7 +133,7 @@ func (as *Server) CampaignComplete(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id, _ := strconv.ParseInt(vars["id"], 0, 64)
 	switch {
-	case r.Method == "GET":
+	case r.Method == "POST":
 		err := models.CompleteCampaign(id, ctx.Get(r, "user_id").(int64))
 		if err != nil {
 			JSONResponse(w, models.Response{Success: false, Message: "Error completing campaign"}, http.StatusInternalServerError)

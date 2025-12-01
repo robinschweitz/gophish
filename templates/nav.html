@@ -9,13 +9,22 @@
                 <li>
                     <a href="/campaigns">Campaigns</a>
                 </li>
+                <button class="dropdown-btn">Campaign-Scenarios
+                    <i class="fa fa-caret-down"></i>
+                </button>
+                <div class="dropdown-container">
                 <li>
-                    <a href="/groups">Users &amp; Groups</a>
+                    <a href="/scenarios">Scenarios</a>
                 </li>
-                <li> <a href="/templates">Email Templates</a>
+                <li> 
+                    <a href="/templates">Email Templates</a>
                 </li>
                 <li>
                     <a href="/landing_pages">Landing Pages</a>
+                </li>
+                </div>
+                <li>
+                    <a href="/groups">Users &amp; Groups</a>
                 </li>
                 <li>
                     <a href="/sending_profiles">Sending Profiles</a>
@@ -26,6 +35,9 @@
                 {{if .ModifySystem}}
                 <li>
                     <a href="/users">User Management<span class="nav-badge badge pull-right">Admin</span></a>
+                </li>
+                <li>
+                    <a href="/teams">Team Management<span class="nav-badge badge pull-right">Admin</span></a>
                 </li>
                 <li>
                     <a href="/webhooks">Webhooks<span class="nav-badge badge pull-right">Admin</span></a>
