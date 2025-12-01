@@ -1,8 +1,8 @@
 package models
 
 import (
-	"testing"
 	"gopkg.in/check.v1"
+	"testing"
 )
 
 func setupScenarioDependencies(b *testing.B) {
@@ -100,4 +100,3 @@ func (s *ModelsSuite) TestScenarioValidation(c *check.C) {
 	err = sc.Validate()
 	c.Assert(err, check.Equals, nil)
 }
-
