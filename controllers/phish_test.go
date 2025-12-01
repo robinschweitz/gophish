@@ -19,16 +19,17 @@ func getFirstCampaign(t *testing.T) models.Campaign {
 	if err != nil {
 		t.Fatalf("error getting first campaign from database: %v", err)
 	}
+	fmt.Println("Campaigns", campaigns[0])
 	return campaigns[0]
 }
 
 func getFirstEmailRequest(t *testing.T) models.EmailRequest {
 	campaign := getFirstCampaign(t)
 	req := models.EmailRequest{
-		TemplateId:    campaign.TemplateId,
-		Template:      campaign.Template,
-		PageId:        campaign.PageId,
-		Page:          campaign.Page,
+		TemplateId:    campaign.Scenarios[0].Templates[0].Id,
+		Template:      campaign.Scenarios[0].Templates[0],
+		PageId:        campaign.Scenarios[0].PageId,
+		Page:          campaign.Scenarios[0].Page,
 		URL:           "http://localhost.localdomain",
 		UserId:        1,
 		BaseRecipient: campaign.Results[0].BaseRecipient,
@@ -211,9 +212,8 @@ func TestClickedPhishingLinkAfterOpen(t *testing.T) {
 	if result.Status != models.StatusSending {
 		t.Fatalf("unexpected result status received. expected %s got %s", models.StatusSending, result.Status)
 	}
-
 	openEmail(t, ctx, result.RId)
-	clickLink(t, ctx, result.RId, campaign.Page.HTML)
+	clickLink(t, ctx, result.RId, campaign.Scenarios[0].Page.HTML)
 
 	campaign = getFirstCampaign(t)
 	result = campaign.Results[0]
@@ -378,10 +378,13 @@ func TestRedirectTemplating(t *testing.T) {
 	template, _ := models.GetTemplate(1, 1)
 	group, _ := models.GetGroup(1, 1)
 
+	scenario := models.Scenario{UserId: 1, Name: "Redirect Scenario", Description: "Redirect Scenario", Templates: append([]models.Template{}, template), Page: p}
+	scenario.URL = "localhost"
+	models.PostScenario(&scenario, 1)
+
 	campaign := models.Campaign{Name: "Redirect campaign"}
 	campaign.UserId = 1
-	campaign.Template = template
-	campaign.Page = p
+	campaign.Scenarios = append([]models.Scenario{}, scenario)
 	campaign.SMTP = smtp
 	campaign.Groups = []models.Group{group}
 	err = models.PostCampaign(&campaign, campaign.UserId)

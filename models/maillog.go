@@ -33,15 +33,33 @@ var embeddedFileExtensions = []string{".jpg", ".jpeg", ".png", ".gif"}
 // MailLog is a struct that holds information about an email that is to be
 // sent out.
 type MailLog struct {
-	Id          int64     `json:"-"`
-	UserId      int64     `json:"-"`
-	CampaignId  int64     `json:"campaign_id"`
-	RId         string    `json:"id"`
-	SendDate    time.Time `json:"send_date"`
-	SendAttempt int       `json:"send_attempt"`
-	Processing  bool      `json:"-"`
-
+	Id             int64     `json:"-"`
+	UserId         int64     `json:"-"`
+	CampaignId     int64     `json:"campaign_id"`
+	RId            string    `json:"id"`
+	SendDate       time.Time `json:"send_date"`
+	SendAttempt    int       `json:"send_attempt"`
+	Processing     bool      `json:"-"`
+	TemplateId     int64     `json:"template_id"`
+	ScenarioId     int64     `json:"scenario_id"`
 	cachedCampaign *Campaign
+	cachedTemplate *Template
+	cachedScenario *Scenario
+}
+
+type Context struct {
+	From string
+	URL  string
+}
+
+// getBaseURL implements TemplateContext.
+func (c Context) getBaseURL() string {
+	return c.URL
+}
+
+// getFromAddress implements TemplateContext.
+func (c Context) getFromAddress() string {
+	return c.From
 }
 
 // GenerateMailLog creates a new maillog for the given campaign and
@@ -135,7 +153,7 @@ func (m *MailLog) Success() error {
 func (m *MailLog) GetDialer() (mailer.Dialer, error) {
 	c := m.cachedCampaign
 	if c == nil {
-		campaign, err := GetCampaignMailContext(m.CampaignId, m.UserId)
+		campaign, err := GetCampaignContext(m.CampaignId, m.UserId)
 		if err != nil {
 			return nil, err
 		}
@@ -151,6 +169,22 @@ func (m *MailLog) CacheCampaign(campaign *Campaign) error {
 		return fmt.Errorf("incorrect campaign provided for caching. expected %d got %d", m.CampaignId, campaign.Id)
 	}
 	m.cachedCampaign = campaign
+	return nil
+}
+
+func (m *MailLog) CacheTemplate(template *Template) error {
+	if template.Id != m.TemplateId {
+		return fmt.Errorf("incorrect campaign provided for caching. expected %d got %d", m.TemplateId, template.Id)
+	}
+	m.cachedTemplate = template
+	return nil
+}
+
+func (m *MailLog) CacheScenario(scenario *Scenario) error {
+	if scenario.Id != m.ScenarioId {
+		return fmt.Errorf("incorrect campaign provided for caching. expected %d got %d", m.ScenarioId, scenario.Id)
+	}
+	m.cachedScenario = scenario
 	return nil
 }
 
@@ -175,14 +209,30 @@ func (m *MailLog) Generate(msg *gomail.Message) error {
 	}
 	c := m.cachedCampaign
 	if c == nil {
-		campaign, err := GetCampaignMailContext(m.CampaignId, m.UserId)
+		campaign, err := GetCampaignContext(m.CampaignId, m.UserId)
 		if err != nil {
 			return err
 		}
 		c = &campaign
 	}
+	s := m.cachedScenario
+	if s == nil {
+		scenario, err := GetScenario(m.ScenarioId, m.UserId)
+		if err != nil {
+			return err
+		}
+		s = &scenario
+	}
+	t := m.cachedTemplate
+	if t == nil {
+		template, err := GetTemplate(m.TemplateId, m.UserId)
+		if err != nil {
+			return err
+		}
+		t = &template
+	}
 
-	f, err := mail.ParseAddress(c.Template.EnvelopeSender)
+	f, err := mail.ParseAddress(t.EnvelopeSender)
 	if err != nil {
 		f, err = mail.ParseAddress(c.SMTP.FromAddress)
 		if err != nil {
@@ -191,7 +241,9 @@ func (m *MailLog) Generate(msg *gomail.Message) error {
 	}
 	msg.SetAddressHeader("From", f.Address, f.Name)
 
-	ptx, err := NewPhishingTemplateContext(c, r.BaseRecipient, r.RId)
+	context := Context{From: c.getFromAddress(), URL: s.getBaseURL()}
+
+	ptx, err := NewPhishingTemplateContext(context, r.BaseRecipient, r.RId)
 	if err != nil {
 		return err
 	}
@@ -226,7 +278,7 @@ func (m *MailLog) Generate(msg *gomail.Message) error {
 	}
 
 	// Parse remaining templates
-	subject, err := ExecuteTemplate(c.Template.Subject, ptx)
+	subject, err := ExecuteTemplate(t.Subject, ptx)
 
 	if err != nil {
 		log.Warn(err)
@@ -237,26 +289,26 @@ func (m *MailLog) Generate(msg *gomail.Message) error {
 	}
 
 	msg.SetHeader("To", r.FormatAddress())
-	if c.Template.Text != "" {
-		text, err := ExecuteTemplate(c.Template.Text, ptx)
+	if t.Text != "" {
+		text, err := ExecuteTemplate(t.Text, ptx)
 		if err != nil {
 			log.Warn(err)
 		}
 		msg.SetBody("text/plain", text)
 	}
-	if c.Template.HTML != "" {
-		html, err := ExecuteTemplate(c.Template.HTML, ptx)
+	if t.HTML != "" {
+		html, err := ExecuteTemplate(t.HTML, ptx)
 		if err != nil {
 			log.Warn(err)
 		}
-		if c.Template.Text == "" {
+		if t.Text == "" {
 			msg.SetBody("text/html", html)
 		} else {
 			msg.AddAlternative("text/html", html)
 		}
 	}
 	// Attach the files
-	for _, a := range c.Template.Attachments {
+	for _, a := range t.Attachments {
 		addAttachment(msg, a, ptx)
 	}
 
@@ -278,6 +330,20 @@ func GetQueuedMailLogs(t time.Time) ([]*MailLog, error) {
 func GetMailLogsByCampaign(cid int64) ([]*MailLog, error) {
 	ms := []*MailLog{}
 	err := db.Where("campaign_id = ?", cid).Find(&ms).Error
+	return ms, err
+}
+
+// GetMailLogsByCampaign returns all of the mail logs for a given campaign.
+func GetMailLogsByCampaignScenario(cid int64, sid int64) ([]*MailLog, error) {
+	ms := []*MailLog{}
+	err := db.Where("scenario_id = ? and campaign_id = ?", sid, cid).Find(&ms).Error
+	return ms, err
+}
+
+// GetMailLogsByCampaign returns all of the mail logs for a given campaign.
+func GetMailLogsByCampaignScenarioTemplates(cid int64, sid int64, tid int64) ([]*MailLog, error) {
+	ms := []*MailLog{}
+	err := db.Where("scenario_id = ? and campaign_id = ? and template_id = ?", sid, cid, tid).Find(&ms).Error
 	return ms, err
 }
 

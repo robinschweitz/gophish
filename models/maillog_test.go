@@ -22,7 +22,6 @@ func (s *ModelsSuite) emailFromFirstMailLog(campaign Campaign, ch *check.C) *ema
 	err := db.Where("r_id=? AND campaign_id=?", result.RId, campaign.Id).
 		Find(m).Error
 	ch.Assert(err, check.Equals, nil)
-
 	msg := gomail.NewMessage()
 	err = m.Generate(msg)
 	ch.Assert(err, check.Equals, nil)
@@ -224,7 +223,11 @@ func (s *ModelsSuite) TestMailLogGetSmtpFrom(ch *check.C) {
 	}
 	ch.Assert(PostTemplate(&template), check.Equals, nil)
 	campaign := s.createCampaignDependencies(ch)
-	campaign.Template = template
+
+	scenario := campaign.Scenarios[0]
+
+	scenario.Templates = []Template{{Id: template.Id}}
+	ch.Assert(PutScenario(&scenario), check.Equals, nil)
 
 	ch.Assert(PostCampaign(&campaign, campaign.UserId), check.Equals, nil)
 	result := campaign.Results[0]
@@ -287,8 +290,8 @@ func (s *ModelsSuite) TestMailLogGenerateOverrideTransparencyHeaders(ch *check.C
 		FromAddress: "foo@example.com",
 		UserId:      1,
 		Headers: []Header{
-			Header{Key: "X-Gophish-Contact", Value: ""},
-			Header{Key: "X-Mailer", Value: ""},
+			{Key: "X-Gophish-Contact", Value: ""},
+			{Key: "X-Mailer", Value: ""},
 		},
 	}
 	ch.Assert(PostSMTP(&smtp), check.Equals, nil)
@@ -328,8 +331,12 @@ func (s *ModelsSuite) TestURLTemplateRendering(ch *check.C) {
 	}
 	ch.Assert(PostTemplate(&template), check.Equals, nil)
 	campaign := s.createCampaignDependencies(ch)
-	campaign.URL = "http://127.0.0.1/{{.Email}}/"
-	campaign.Template = template
+
+	scenario := campaign.Scenarios[0]
+
+	scenario.URL = "http://127.0.0.1/{{.Email}}/"
+	scenario.Templates = []Template{{Id: template.Id}}
+	ch.Assert(PutScenario(&scenario), check.Equals, nil)
 
 	ch.Assert(PostCampaign(&campaign, campaign.UserId), check.Equals, nil)
 	result := campaign.Results[0]
@@ -381,7 +388,7 @@ func (s *ModelsSuite) TestShouldEmbedAttachment(ch *check.C) {
 
 func (s *ModelsSuite) TestEmbedAttachment(ch *check.C) {
 	campaign := s.createCampaignDependencies(ch)
-	campaign.Template.Attachments = []Attachment{
+	campaign.Scenarios[0].Templates[0].Attachments = []Attachment{
 		{
 			Name:    "test.png",
 			Type:    "image/png",
@@ -393,10 +400,9 @@ func (s *ModelsSuite) TestEmbedAttachment(ch *check.C) {
 			Content: "VGVzdCB0ZXh0IGZpbGU=",
 		},
 	}
-	PutTemplate(&campaign.Template)
+	PutTemplate(&campaign.Scenarios[0].Templates[0])
 	ch.Assert(PostCampaign(&campaign, campaign.UserId), check.Equals, nil)
 	got := s.emailFromFirstMailLog(campaign, ch)
-
 	// The email package simply ignores attachments where the Content-Disposition header is set
 	// to inline, so the best we can do without replacing the whole thing is to check that only
 	// the text file was added as an attachment.

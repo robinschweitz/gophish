@@ -32,17 +32,19 @@ func (d *Dialer) Dial() (mailer.Sender, error) {
 
 // SMTP contains the attributes needed to handle the sending of campaign emails
 type SMTP struct {
-	Id               int64     `json:"id" gorm:"column:id; primary_key:yes"`
-	UserId           int64     `json:"-" gorm:"column:user_id"`
-	Interface        string    `json:"interface_type" gorm:"column:interface_type"`
-	Name             string    `json:"name"`
-	Host             string    `json:"host"`
-	Username         string    `json:"username,omitempty"`
-	Password         string    `json:"password,omitempty"`
-	FromAddress      string    `json:"from_address"`
-	IgnoreCertErrors bool      `json:"ignore_cert_errors"`
-	Headers          []Header  `json:"headers"`
-	ModifiedDate     time.Time `json:"modified_date"`
+	Id               int64         `json:"id" gorm:"column:id; primary_key:yes"`
+	UserId           int64         `json:"user_id" gorm:"column:user_id"`
+	Interface        string        `json:"interface_type" gorm:"column:interface_type"`
+	Name             string        `json:"name"`
+	Host             string        `json:"host"`
+	Username         string        `json:"username,omitempty"`
+	Password         string        `json:"password,omitempty"`
+	FromAddress      string        `json:"from_address"`
+	IgnoreCertErrors bool          `json:"ignore_cert_errors"`
+	Headers          []Header      `json:"headers"`
+	ModifiedDate     time.Time     `json:"modified_date"`
+	Item             Item          `json:"-" gorm:"ForeignKey:item_type_id"`
+	Teams            []TeamSummary `json:"teams" gorm:"-"`
 }
 
 // Header contains the fields and methods for a sending profile to have
@@ -140,73 +142,101 @@ func (s *SMTP) GetDialer() (mailer.Dialer, error) {
 
 // GetSMTPs returns the SMTPs owned by the given user.
 func GetSMTPs(uid int64) ([]SMTP, error) {
-	ss := []SMTP{}
-	err := db.Where("user_id=?", uid).Find(&ss).Error
+
+	smtp := []SMTP{}
+	// Fetch all the SMTP-Profiles
+	err := db.Preload("Item", "item_type = ?", "smtp").Preload("Item.Teams.Users.Teams.Role").Find(&smtp).Error
 	if err != nil {
 		log.Error(err)
-		return ss, err
+		return smtp, err
 	}
-	for i := range ss {
-		err = db.Where("smtp_id=?", ss[i].Id).Find(&ss[i].Headers).Error
-		if err != nil && err != gorm.ErrRecordNotFound {
-			log.Error(err)
-			return ss, err
+
+	ss := []SMTP{}
+	// Check which profiles the user can access
+	for _, s := range smtp {
+		if s.UserId == uid || checkForValue(uid, s.Item.Teams) {
+			err = db.Where("smtp_id=?", s.Id).Find(&s.Headers).Error
+			if err != nil && err != gorm.ErrRecordNotFound {
+				log.Error(err)
+				return smtp, err
+			}
+			ts := []TeamSummary{}
+			for _, team := range s.Item.Teams {
+				ts = append(ts, convertTeamSummary(team))
+			}
+			s.Teams = ts
+			ss = append(ss, s)
 		}
 	}
+
 	return ss, nil
 }
 
 // GetSMTP returns the SMTP, if it exists, specified by the given id and user_id.
 func GetSMTP(id int64, uid int64) (SMTP, error) {
-	s := SMTP{}
-	err := db.Where("user_id=? and id=?", uid, id).Find(&s).Error
-	if err != nil {
-		log.Error(err)
-		return s, err
-	}
-	err = db.Where("smtp_id=?", s.Id).Find(&s.Headers).Error
-	if err != nil && err != gorm.ErrRecordNotFound {
-		log.Error(err)
-		return s, err
-	}
-	return s, err
-}
 
-// GetSMTPByName returns the SMTP, if it exists, specified by the given name and user_id.
-func GetSMTPByName(n string, uid int64) (SMTP, error) {
 	s := SMTP{}
-	err := db.Where("user_id=? and name=?", uid, n).Find(&s).Error
+	err := db.Preload("Item", "item_type = ?", "smtp").Preload("Item.Teams.Users").Find(&s, "id =?", id).Error
 	if err != nil {
 		log.Error(err)
 		return s, err
 	}
+
+	if !(s.UserId == uid || checkForValue(uid, s.Item.Teams)) {
+		return s, ErrPageNotFound
+	}
+
 	err = db.Where("smtp_id=?", s.Id).Find(&s.Headers).Error
 	if err != nil && err != gorm.ErrRecordNotFound {
 		log.Error(err)
+		return s, err
 	}
+	ts := []TeamSummary{}
+	for _, team := range s.Item.Teams {
+		ts = append(ts, convertTeamSummary(team))
+	}
+	s.Teams = ts
+
 	return s, err
 }
 
 // PostSMTP creates a new SMTP in the database.
 func PostSMTP(s *SMTP) error {
+
 	err := s.Validate()
 	if err != nil {
 		log.Error(err)
 		return err
 	}
 	// Insert into the DB
-	err = db.Save(s).Error
+	tx := db.Begin()
+	err = tx.Save(s).Error
 	if err != nil {
+		tx.Rollback()
 		log.Error(err)
+		return err
 	}
+	err = tx.Create(&Item{ItemType: "smtp", ItemTypeID: s.Id}).Error
+	if err != nil {
+		tx.Rollback()
+		log.Error(err)
+		return err
+	}
+
 	// Save custom headers
 	for i := range s.Headers {
 		s.Headers[i].SMTPId = s.Id
-		err := db.Save(&s.Headers[i]).Error
+		err := tx.Save(&s.Headers[i]).Error
 		if err != nil {
+			tx.Rollback()
 			log.Error(err)
 			return err
 		}
+	}
+	err = tx.Commit().Error
+	if err != nil {
+		tx.Rollback()
+		return err
 	}
 	return err
 }
@@ -214,29 +244,40 @@ func PostSMTP(s *SMTP) error {
 // PutSMTP edits an existing SMTP in the database.
 // Per the PUT Method RFC, it presumes all data for a SMTP is provided.
 func PutSMTP(s *SMTP) error {
+
 	err := s.Validate()
 	if err != nil {
+		return err
+	}
+	tx := db.Begin()
+	err = tx.Where("id=?", s.Id).Save(s).Error
+	if err != nil {
+		tx.Rollback()
 		log.Error(err)
 		return err
 	}
-	err = db.Where("id=?", s.Id).Save(s).Error
-	if err != nil {
-		log.Error(err)
-	}
+
 	// Delete all custom headers, and replace with new ones
-	err = db.Where("smtp_id=?", s.Id).Delete(&Header{}).Error
+	err = tx.Where("smtp_id=?", s.Id).Delete(&Header{}).Error
 	if err != nil && err != gorm.ErrRecordNotFound {
+		tx.Rollback()
 		log.Error(err)
 		return err
 	}
 	// Save custom headers
 	for i := range s.Headers {
 		s.Headers[i].SMTPId = s.Id
-		err := db.Save(&s.Headers[i]).Error
+		err := tx.Save(&s.Headers[i]).Error
 		if err != nil {
+			tx.Rollback()
 			log.Error(err)
 			return err
 		}
+	}
+	err = tx.Commit().Error
+	if err != nil {
+		tx.Rollback()
+		return err
 	}
 	return err
 }
@@ -244,15 +285,40 @@ func PutSMTP(s *SMTP) error {
 // DeleteSMTP deletes an existing SMTP in the database.
 // An error is returned if a SMTP with the given user id and SMTP id is not found.
 func DeleteSMTP(id int64, uid int64) error {
+	tx := db.Begin()
 	// Delete all custom headers
-	err := db.Where("smtp_id=?", id).Delete(&Header{}).Error
+	err := tx.Where("smtp_id=?", id).Delete(&Header{}).Error
 	if err != nil {
+		tx.Rollback()
 		log.Error(err)
 		return err
 	}
-	err = db.Where("user_id=?", uid).Delete(SMTP{Id: id}).Error
+	// Delete associated items from Item and TeamItem tables
+	item := Item{}
+	err = tx.Where("item_type = ? AND item_type_id = ?", "smtp", id).Delete(&item).Error
 	if err != nil {
+		tx.Rollback()
 		log.Error(err)
+		return err
+	}
+	err = tx.Where("item_id = ?", item.Id).Delete(&ItemTeams{}).Error
+	if err != nil {
+		tx.Rollback()
+		log.Error(err)
+		return err
+	}
+
+	// Delete the SMTP
+	err = tx.Delete(SMTP{Id: id}).Error
+	if err != nil {
+		tx.Rollback()
+		log.Error(err)
+		return err
+	}
+	err = tx.Commit().Error
+	if err != nil {
+		tx.Rollback()
+		return err
 	}
 	return err
 }

@@ -52,7 +52,7 @@
                     <input type="text" class="form-control" ng-model="group.name" placeholder="Group name" id="name"
                         autofocus />
                 </div>
-                <div class="form-group">
+                <div class="form-group import-users">
                     <span class="btn btn-danger btn-file" data-toggle="tooltip" data-placement="right"
                         title="Supports CSV files" id="fileUpload">
                         <i class="fa fa-plus"></i> Bulk Import Users
@@ -61,7 +61,7 @@
                     <span id="csv-template" class="text-muted small">
                         <i class="fa fa-file-excel-o"></i> Download CSV Template</span>
                 </div>
-                <div class="row">
+                <div class="row add-users">
                     <form id="targetForm">
                         <div class="col-sm-2">
                             <input type="text" class="form-control" placeholder="First Name" id="firstName">
@@ -101,6 +101,52 @@
         </div>
     </div>
 </div>
+<!-- Modal -->
+<div class="modal fade" id="team_modal" tabindex="-1" role="dialog" aria-labelledby="modalLabel">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+                <h4 class="modal-title" id="campaignModalLabel">Add Team</h4>
+            </div>
+            <div class="modal-body" id="modal_body">
+                <div class="row" id="modal.flashes"></div>
+                <div class="row">
+                    <form id="teamTargetForm">
+                            <div class="col-sm-4">
+                            <label class="control-label" for="team">Add Team:</label>
+
+                            <select class="form-control" placeholder="Team Name" id="team">
+                            </select>
+                            </div>
+                            <div class="col-sm-8">
+                            <button type="submit" class="btn btn-danger btn-lg" style="float: right;">
+                                <i class="fa fa-plus"></i> Add</button>
+                            </div>
+                            <option></option>
+                    </form>
+                </div>
+                <br />
+                <table id="teamTargetsTable" class="table table-hover table-striped table-condensed">
+                    <thead>
+                        <tr>
+                            <th>Team Name</th>
+                            <th>Team Id</th>
+                            <th class="no-sort"></th>
+                    <tbody>
+                    </tbody>
+                </table>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal" onclick="dismiss()">Close</button>
+                <button type="button" class="btn btn-primary" id="modalSubmitTeam">Save changes</button>
+            </div>
+        </div>
+    </div>
+</div> 
 {{end}} {{define "scripts"}}
 <script src="/js/dist/app/groups.min.js"></script>
+<script src="/js/dist/app/utils.min.js"></script>
 {{end}}

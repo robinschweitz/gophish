@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	ctx "github.com/gophish/gophish/context"
 	"github.com/gophish/gophish/models"
 	"github.com/gorilla/csrf"
+	"github.com/gorilla/mux"
 )
 
 // CSRFExemptPrefixes are a list of routes that are exempt from CSRF protection
@@ -141,6 +143,8 @@ func EnforceViewOnly(next http.Handler) http.Handler {
 		// permission.
 		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
 			user := ctx.Get(r, "user").(models.User)
+			// if user has global permission he should be able to change to change his own object; he should also be able to change every object related to his team if he has the right role.
+			// get what should be changed and look for teams related to that item. If user is in team check if user HasPermission
 			access, err := user.HasPermission(models.PermissionModifyObjects)
 			if err != nil {
 				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
@@ -194,4 +198,78 @@ func JSONError(w http.ResponseWriter, c int, m string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(c)
 	fmt.Fprintf(w, "%s", cj)
+}
+
+// Checks if the user is allowed to share the item
+func CanShareItem() func(next http.Handler) http.HandlerFunc {
+	return func(next http.Handler) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+				user := ctx.Get(r, "user").(models.User)
+				vars := mux.Vars(r)
+				id, _ := strconv.ParseInt(vars["id"], 0, 64)
+				user_access, err := user.IsOwnerOfItem(id, vars["item"])
+				if err != nil {
+					JSONError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+
+				if !user_access {
+					http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+					return
+				}
+			}
+			next.ServeHTTP(w, r)
+		}
+	}
+}
+
+// EnforceTeamViewOnly is a global middleware that limits the ability to edit
+// objects to accounts with the PermissionModifyTeamObjects and PermissionDeleteTeamObjects permission.
+func EnforceTeamViewOnly(item string) func(next http.Handler) http.HandlerFunc {
+	return func(next http.Handler) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+				user := ctx.Get(r, "user").(models.User)
+				vars := mux.Vars(r)
+				id, _ := strconv.ParseInt(vars["id"], 0, 64)
+				if id == 0 {
+					next.ServeHTTP(w, r)
+					return
+				}
+
+				user_access, err := user.IsOwnerOfItem(id, item)
+				if err != nil {
+					http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+					return
+				}
+				if r.Method == http.MethodDelete {
+					// if user has the team permission he should be able to delete the object;
+					team_access, err := user.HasTeamPermission(models.PermissionDeleteTeamObjects, id, item)
+					if err != nil {
+						http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+						return
+					}
+					// if user is owner or has permission by the team;
+					if !(team_access || user_access) {
+						http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+						return
+					}
+				} else {
+					// if user has the team permission he should be able to change the object;
+					team_access, err := user.HasTeamPermission(models.PermissionModifyTeamObjects, id, item)
+					if err != nil {
+						http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+						return
+					}
+					// if user is owner or has permission by the team;
+					if !(team_access || user_access) {
+						http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+						return
+					}
+				}
+			}
+			next.ServeHTTP(w, r)
+		}
+	}
 }

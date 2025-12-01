@@ -10,6 +10,8 @@ var labels = {
 
 var campaigns = []
 var campaign = {}
+var teams = []
+var item_type = "campaigns"
 
 // Launch attempts to POST to /campaigns/
 function launch() {
@@ -29,7 +31,7 @@ function launch() {
                 groups = []
                 $("#users").select2("data").forEach(function (group) {
                     groups.push({
-                        name: group.text
+                        id: parseInt(group.id)
                     });
                 })
                 // Validate our fields
@@ -37,21 +39,34 @@ function launch() {
                 if (send_by_date != "") {
                     send_by_date = moment(send_by_date, "MMMM Do YYYY, h:mm a").utc().format()
                 }
+
+                var start_time = $("#start_time").val()
+                if (start_time != "") {
+                    start_time = moment($("#start_time").val(), "h:mm a").utc().format()
+                }
+
+                var end_time = $("#end_time").val()
+                if (end_time != ""){
+                    end_time = moment($("#end_time").val(), "h:mm a").utc().format()
+                }
+
+                var selected = $("#scenario").select2("data")
+                var scenarios = []
+
+                for (var i = 0; i < selected.length; i++) {
+                    scenarios.push({ id: parseInt($("#scenario").select2("data")[i].id) })
+                }
                 campaign = {
                     name: $("#name").val(),
-                    template: {
-                        name: $("#template").select2("data")[0].text
-                    },
-                    url: $("#url").val(),
-                    page: {
-                        name: $("#page").select2("data")[0].text
-                    },
+                    scenarios: scenarios,
                     smtp: {
-                        name: $("#profile").select2("data")[0].text
+                        id: parseInt($("#profile").select2("data")[0].id)
                     },
                     launch_date: moment($("#launch_date").val(), "MMMM Do YYYY, h:mm a").utc().format(),
                     send_by_date: send_by_date || null,
                     groups: groups,
+                    start_time : start_time || null,
+                    end_time : end_time || null,
                 }
                 // Submit the campaign
                 api.campaigns.post(campaign)
@@ -67,7 +82,7 @@ function launch() {
             })
         }
     }).then(function (result) {
-        if (result.value){
+        if (result.value) {
             Swal.fire(
                 'Campaign Scheduled!',
                 'This campaign has been scheduled for launch!',
@@ -82,44 +97,58 @@ function launch() {
 
 // Attempts to send a test email by POSTing to /campaigns/
 function sendTestEmail() {
-    var test_email_request = {
-        template: {
-            name: $("#template").select2("data")[0].text
-        },
-        first_name: $("input[name=to_first_name]").val(),
-        last_name: $("input[name=to_last_name]").val(),
-        email: $("input[name=to_email]").val(),
-        position: $("input[name=to_position]").val(),
-        url: $("#url").val(),
-        page: {
-            name: $("#page").select2("data")[0].text
-        },
-        smtp: {
-            name: $("#profile").select2("data")[0].text
-        }
-    }
-    btnHtml = $("#sendTestModalSubmit").html()
-    $("#sendTestModalSubmit").html('<i class="fa fa-spinner fa-spin"></i> Sending')
-    // Send the test email
-    api.send_test_email(test_email_request)
-        .success(function (data) {
-            $("#sendTestEmailModal\\.flashes").empty().append("<div style=\"text-align:center\" class=\"alert alert-success\">\
-            <i class=\"fa fa-check-circle\"></i> Email Sent!</div>")
-            $("#sendTestModalSubmit").html(btnHtml)
+    var selected_scenarios = $("#scenario").select2("data")
+
+    for (var i = 0; i < selected_scenarios.length; i++) {
+        api.scenarioId.get(parseInt($("#scenario").select2("data")[i].id))
+        .success(function (scenario) {
+            for (const template of scenario.templates) {
+                var test_email_request = {
+                    template: {
+                        id: template.id
+                    },
+                    page: {
+                        id: scenario.page.id
+                    },
+                    url: scenario.url,
+                    first_name: $("input[name=to_first_name]").val(),
+                    last_name: $("input[name=to_last_name]").val(),
+                    email: $("input[name=to_email]").val(),
+                    position: $("input[name=to_position]").val(),
+                    smtp: {
+                        id: parseInt($("#profile").select2("data")[0].id)
+                    }
+                }
+                btnHtml = $("#sendTestModalSubmit").html()
+                $("#sendTestModalSubmit").html('<i class="fa fa-spinner fa-spin"></i> Sending')
+                // Send the test email
+                api.send_test_email(test_email_request)
+                    .success(function (data) {
+                        $("#sendTestEmailModal\\.flashes").empty().append("<div style=\"text-align:center\" class=\"alert alert-success\">\
+                        <i class=\"fa fa-check-circle\"></i> Email Sent!</div>")
+                        $("#sendTestModalSubmit").html(btnHtml)
+                    })
+                    .error(function (data) {
+                        $("#sendTestEmailModal\\.flashes").empty().append("<div style=\"text-align:center\" class=\"alert alert-danger\">\
+                        <i class=\"fa fa-exclamation-circle\"></i> " + data.responseJSON.message + "</div>")
+                        $("#sendTestModalSubmit").html(btnHtml)
+                    })
+            }
         })
         .error(function (data) {
+            btnHtml = $("#sendTestModalSubmit").html()
+            $("#sendTestModalSubmit").html('<i class="fa fa-spinner fa-spin"></i> Sending')
+
             $("#sendTestEmailModal\\.flashes").empty().append("<div style=\"text-align:center\" class=\"alert alert-danger\">\
-            <i class=\"fa fa-exclamation-circle\"></i> " + data.responseJSON.message + "</div>")
+            <i class=\"fa fa-exclamation-circle\"></i> " + "Please set the scenarios" + "</div>")
             $("#sendTestModalSubmit").html(btnHtml)
         })
+    }
 }
 
 function dismiss() {
     $("#modal\\.flashes").empty();
     $("#name").val("");
-    $("#template").val("").change();
-    $("#page").val("").change();
-    $("#url").val("");
     $("#profile").val("").change();
     $("#users").val("").change();
     $("#modal").modal('hide');
@@ -132,7 +161,7 @@ function deleteCampaign(idx) {
         type: "warning",
         animation: false,
         showCancelButton: true,
-        confirmButtonText: "Delete " + campaigns[idx].name,
+        confirmButtonText: "Delete " + escapeHtml(campaigns[idx].name),
         confirmButtonColor: "#428bca",
         reverseButtons: true,
         allowOutsideClick: false,
@@ -145,10 +174,15 @@ function deleteCampaign(idx) {
                     .error(function (data) {
                         reject(data.responseJSON.message)
                     })
+            }).catch(function (error) {
+                Swal.showValidationMessage(
+                    `Request failed: ${error}`
+                );
+                return false;
             })
         }
     }).then(function (result) {
-        if (result.value){
+        if (result.value) {
             Swal.fire(
                 'Campaign Deleted!',
                 'This campaign has been deleted!',
@@ -162,6 +196,27 @@ function deleteCampaign(idx) {
 }
 
 function setupOptions() {
+    api.scenarios.get()
+        .success(function (scenarios) {
+            if (scenarios.length === 0) {
+                modalError("No scenarios found!")
+                return false
+            } else {
+                var scenario_s2 = $.map(scenarios, function (obj) {
+                    obj.text = obj.name
+                    return obj
+                });
+                var scenario_select = $("#scenario.form-control")
+                scenario_select.select2({
+                    placeholder: "Select the Scenarios",
+                    data: scenario_s2,
+                }).select2("val", scenario_s2[0]);
+                if (scenarios.length === 1) {
+                    scenario_select.val(scenario_select[0].id)
+                    scenario_select.trigger('change.select2')
+                }
+            }
+        });
     api.groups.summary()
         .success(function (summaries) {
             groups = summaries.groups
@@ -179,48 +234,6 @@ function setupOptions() {
                     placeholder: "Select Groups",
                     data: group_s2,
                 });
-            }
-        });
-    api.templates.get()
-        .success(function (templates) {
-            if (templates.length == 0) {
-                modalError("No templates found!")
-                return false
-            } else {
-                var template_s2 = $.map(templates, function (obj) {
-                    obj.text = obj.name
-                    return obj
-                });
-                var template_select = $("#template.form-control")
-                template_select.select2({
-                    placeholder: "Select a Template",
-                    data: template_s2,
-                });
-                if (templates.length === 1) {
-                    template_select.val(template_s2[0].id)
-                    template_select.trigger('change.select2')
-                }
-            }
-        });
-    api.pages.get()
-        .success(function (pages) {
-            if (pages.length == 0) {
-                modalError("No pages found!")
-                return false
-            } else {
-                var page_s2 = $.map(pages, function (obj) {
-                    obj.text = obj.name
-                    return obj
-                });
-                var page_select = $("#page.form-control")
-                page_select.select2({
-                    placeholder: "Select a Landing Page",
-                    data: page_s2,
-                });
-                if (pages.length === 1) {
-                    page_select.val(page_s2[0].id)
-                    page_select.trigger('change.select2')
-                }
             }
         });
     api.SMTP.get()
@@ -256,23 +269,21 @@ function copy(idx) {
     api.campaignId.get(campaigns[idx].id)
         .success(function (campaign) {
             $("#name").val("Copy of " + campaign.name)
-            if (!campaign.template.id) {
-                $("#template").val("").change();
-                $("#template").select2({
-                    placeholder: campaign.template.name
+            var campaign_scenarios = []
+            console.log(campaign.scenarios)
+            campaign.scenarios.forEach((item) => {
+                if (item.hasOwnProperty('id')) {
+                    campaign_scenarios.push(item.id.toString())
+                }
+            })
+            if (campaign_scenarios.length === 0){
+                $("#scenario").val("").change();
+                $("#scenario").select2({
+                    placeholder: "Add Scenarios"
                 });
             } else {
-                $("#template").val(campaign.template.id.toString());
-                $("#template").trigger("change.select2")
-            }
-            if (!campaign.page.id) {
-                $("#page").val("").change();
-                $("#page").select2({
-                    placeholder: campaign.page.name
-                });
-            } else {
-                $("#page").val(campaign.page.id.toString());
-                $("#page").trigger("change.select2")
+                $("#scenario").val(campaign_scenarios);
+                $("#scenario").trigger("change.select2")
             }
             if (!campaign.smtp.id) {
                 $("#profile").val("").change();
@@ -283,7 +294,6 @@ function copy(idx) {
                 $("#profile").val(campaign.smtp.id.toString());
                 $("#profile").trigger("change.select2")
             }
-            $("#url").val(campaign.url)
         })
         .error(function (data) {
             $("#modal\\.flashes").empty().append("<div style=\"text-align:center\" class=\"alert alert-danger\">\
@@ -298,7 +308,7 @@ $(document).ready(function () {
         },
         "showTodayButton": true,
         "defaultDate": moment(),
-        "format": "MMMM Do YYYY, h:mm a"
+        "format": "MMMM Do YYYY"
     })
     $("#send_by_date").datetimepicker({
         "widgetPositioning": {
@@ -306,7 +316,59 @@ $(document).ready(function () {
         },
         "showTodayButton": true,
         "useCurrent": false,
-        "format": "MMMM Do YYYY, h:mm a"
+        "format": "MMMM Do YYYY"
+    })
+    $("#start_time").datetimepicker({
+        "widgetPositioning": {
+            "vertical": "bottom"
+        },
+        "showTodayButton": false,
+        "defaultDate": false,
+        "format": "h:mm a"
+    })
+    $("#end_time").datetimepicker({
+        "widgetPositioning": {
+            "vertical": "bottom"
+        },
+        "showTodayButton": false,
+        "defaultDate": false,
+        "format": "h:mm a"
+    })
+    if (!document.getElementById('special_time_checkbox').checked) {
+        $(".toggle-label-time").hide()
+        $("#start_time").hide()
+        $("#end_time").hide()
+    }
+    if (document.getElementById('special_sending_checkbox').checked) {
+        $(".toggle-label").hide()
+        $("#send_by_date").hide()
+    }
+    $("#special_time_checkbox").change(function () {
+    	if (document.getElementById('special_time_checkbox').checked) {
+    		$(".toggle-label-time").show()
+    		$("#start_time").show()
+            $("#end_time").show()
+        } else {
+        	$(".toggle-label-time").hide()
+        	$("#start_time").hide()
+            $("#end_time").hide()
+            $("#start_time").data("DateTimePicker").date(null)
+            $("#end_time").data("DateTimePicker").date(null) 
+        }
+    })
+    $("#special_sending_checkbox").change(function () {
+    	if (document.getElementById('special_sending_checkbox').checked) {
+    		$(".toggle-label").hide()
+    		$("#send_by_date").hide()
+    		$("#launch_date").datetimepicker().data('DateTimePicker').format('MMMM Do YYYY, h:mm a');
+    		$("#send_by_date").data("DateTimePicker").date(null)
+
+        } else {
+        	$(".toggle-label").show()
+        	$("#send_by_date").show()
+		$("#launch_date").datetimepicker().data('DateTimePicker').format('MMMM Do YYYY');
+    		$("#send_by_date").datetimepicker().data('DateTimePicker').format('MMMM Do YYYY');   
+        }
     })
     // Setup multiple modals
     // Code based on http://miles-by-motorcycle.com/static/bootstrap-modal/index.html
@@ -340,73 +402,94 @@ $(document).ready(function () {
     });
     api.campaigns.summary()
         .success(function (data) {
-            campaigns = data.campaigns
-            $("#loading").hide()
-            if (campaigns.length > 0) {
-                $("#campaignTable").show()
-                $("#campaignTableArchive").show()
+            api.user.current().success(function (u) {
+                teams = u.teams
+                items = data.campaigns
+                campaigns = data.campaigns
+                $("#loading").hide()
+                if (campaigns.length > 0) {
+                    $("#campaignTable").show()
+                    $("#campaignTableArchive").show()
 
-                activeCampaignsTable = $("#campaignTable").DataTable({
-                    columnDefs: [{
-                        orderable: false,
-                        targets: "no-sort"
-                    }],
-                    order: [
-                        [1, "desc"]
-                    ]
-                });
-                archivedCampaignsTable = $("#campaignTableArchive").DataTable({
-                    columnDefs: [{
-                        orderable: false,
-                        targets: "no-sort"
-                    }],
-                    order: [
-                        [1, "desc"]
-                    ]
-                });
-                rows = {
-                    'active': [],
-                    'archived': []
-                }
-                $.each(campaigns, function (i, campaign) {
-                    label = labels[campaign.status] || "label-default";
-
-                    //section for tooltips on the status of a campaign to show some quick stats
-                    var launchDate;
-                    if (moment(campaign.launch_date).isAfter(moment())) {
-                        launchDate = "Scheduled to start: " + moment(campaign.launch_date).format('MMMM Do YYYY, h:mm:ss a')
-                        var quickStats = launchDate + "<br><br>" + "Number of recipients: " + campaign.stats.total
-                    } else {
-                        launchDate = "Launch Date: " + moment(campaign.launch_date).format('MMMM Do YYYY, h:mm:ss a')
-                        var quickStats = launchDate + "<br><br>" + "Number of recipients: " + campaign.stats.total + "<br><br>" + "Emails opened: " + campaign.stats.opened + "<br><br>" + "Emails clicked: " + campaign.stats.clicked + "<br><br>" + "Submitted Credentials: " + campaign.stats.submitted_data + "<br><br>" + "Errors : " + campaign.stats.error + "<br><br>" + "Reported : " + campaign.stats.email_reported
+                    activeCampaignsTable = $("#campaignTable").DataTable({
+                        columnDefs: [{
+                            orderable: false,
+                            targets: "no-sort"
+                        }],
+                        order: [
+                            [1, "desc"]
+                        ]
+                    });
+                    archivedCampaignsTable = $("#campaignTableArchive").DataTable({
+                        columnDefs: [{
+                            orderable: false,
+                            targets: "no-sort"
+                        }],
+                        order: [
+                            [1, "desc"]
+                        ]
+                    });
+                    rows = {
+                        'active': [],
+                        'archived': []
                     }
+                    campaigns = campaigns.filter((item, index, self) =>
+                        index === self.findIndex((t) => t.id === item.id)
+                    );
 
-                    var row = [
-                        escapeHtml(campaign.name),
-                        moment(campaign.created_date).format('MMMM Do YYYY, h:mm:ss a'),
-                        "<span class=\"label " + label + "\" data-toggle=\"tooltip\" data-placement=\"right\" data-html=\"true\" title=\"" + quickStats + "\">" + campaign.status + "</span>",
-                        "<div class='pull-right'><a class='btn btn-primary' href='/campaigns/" + campaign.id + "' data-toggle='tooltip' data-placement='left' title='View Results'>\
+                    $.each(campaigns, function (i, campaign) {
+                        var permissions = {
+                            canDelete : false,
+                            canEdit : false,
+                        };
+                        permissions = CheckTeam(campaign.teams, u)
+
+                        var isOwner = false;
+                        if (u.id == campaign.user_id) {
+                            var isOwner = true;
+                        }
+                        label = labels[campaign.status] || "label-default";
+
+                        //section for tooltips on the status of a campaign to show some quick stats
+                        var launchDate;
+                        if (moment(campaign.launch_date).isAfter(moment())) {
+                            launchDate = "Scheduled to start: " + moment(campaign.launch_date).format('MMMM Do YYYY, h:mm:ss a')
+                            var quickStats = launchDate + "<br><br>" + "Number of recipients: " + campaign.stats.total
+                        } else {
+                            launchDate = "Launch Date: " + moment(campaign.launch_date).format('MMMM Do YYYY, h:mm:ss a')
+                            var quickStats = launchDate + "<br><br>" + "Number of recipients: " + campaign.stats.total + "<br><br>" + "Emails opened: " + campaign.stats.opened + "<br><br>" + "Emails clicked: " + campaign.stats.clicked + "<br><br>" + "Submitted Credentials: " + campaign.stats.submitted_data + "<br><br>" + "Errors : " + campaign.stats.error + "<br><br>" + "Reported : " + campaign.stats.email_reported
+                        }
+
+                        var row = [
+                            escapeHtml(campaign.name),
+                            moment(campaign.created_date).format('MMMM Do YYYY, h:mm:ss a'),
+                            "<span class=\"label " + label + "\" data-toggle=\"tooltip\" data-placement=\"right\" data-html=\"true\" title=\"" + quickStats + "\">" + campaign.status + "</span>",
+                            "<div class='pull-right'><a class='btn btn-primary' href='/campaigns/" + campaign.id + "' data-toggle='tooltip' data-placement='left' title='View Results'>\
                     <i class='fa fa-bar-chart'></i>\
                     </a>\
             <span data-toggle='modal' data-backdrop='static' data-target='#modal'><button class='btn btn-primary' data-toggle='tooltip' data-placement='left' title='Copy Campaign' onclick='copy(" + i + ")'>\
                     <i class='fa fa-copy'></i>\
                     </button></span>\
-                    <button class='btn btn-danger' onclick='deleteCampaign(" + i + ")' data-toggle='tooltip' data-placement='left' title='Delete Campaign'>\
+                    <button class='btn " + (isOwner || permissions.canDelete ? "btn-danger" : "btn-secondary disabled") + "' data-toggle='tooltip' data-placement='left' title='" + (isOwner || permissions.canDelete ? "Delete Campaign" : "You dont have permission to delete this campaign") + "' " + (isOwner || permissions.canDelete ? "onclick='deleteCampaign(" + i + ")'" : "disabled") + ">\
                     <i class='fa fa-trash-o'></i>\
+                    </button>\
+                    <button id='teams_button' type='button' class='btn "+ (isOwner ? "btn-orange" : "btn-secondary disabled") + "' data-toggle='modal' data-backdrop='static' data-target='#team_modal'" + (isOwner ? "onclick='team("+ i + ")'" : "disabled") + "'>\
+                    <i class='fa fa-users'></i> Update teams\
                     </button></div>"
-                    ]
-                    if (campaign.status == 'Completed') {
-                        rows['archived'].push(row)
-                    } else {
-                        rows['active'].push(row)
-                    }
-                })
-                activeCampaignsTable.rows.add(rows['active']).draw()
-                archivedCampaignsTable.rows.add(rows['archived']).draw()
-                $('[data-toggle="tooltip"]').tooltip()
-            } else {
-                $("#emptyMessage").show()
-            }
+                        ]
+                        if (campaign.status == 'Completed') {
+                            rows['archived'].push(row)
+                        } else {
+                            rows['active'].push(row)
+                        }
+                    })
+                    activeCampaignsTable.rows.add(rows['active']).draw()
+                    archivedCampaignsTable.rows.add(rows['archived']).draw()
+                    $('[data-toggle="tooltip"]').tooltip()
+                } else {
+                    $("#emptyMessage").show()
+                }
+            })
         })
         .error(function () {
             $("#loading").hide()
@@ -428,3 +511,7 @@ $(document).ready(function () {
         });
     })
 })
+
+function team(i) {
+    updateItemTeamsAssignment(campaigns[i], item_type, teams)
+}

@@ -1,5 +1,6 @@
 var profiles = []
-
+var teams = []
+var item_type = "smtp"
 // Attempts to send a test email by POSTing to /campaigns/
 function sendTestEmail() {
     var headers = [];
@@ -123,6 +124,11 @@ var deleteProfile = function (idx) {
                     .error(function (data) {
                         reject(data.responseJSON.message)
                     })
+            }).catch(function (error) {
+                Swal.showValidationMessage(
+                    `Request failed: ${error}`
+                );
+                return false;
             })
         }
     }).then(function (result) {
@@ -137,6 +143,44 @@ var deleteProfile = function (idx) {
             location.reload()
         })
     })
+}
+
+function view(idx) {
+    headers = $("#headersTable").dataTable({
+        destroy: true, // Destroy any other instantiated table - http://datatables.net/manual/tech-notes/3#destroy
+        columnDefs: [{
+            orderable: false,
+            targets: "no-sort"
+        }]
+    })
+
+    $("#modalSubmit").unbind('click').click(function () {
+        save(idx)
+    })
+    var profile = {}
+    $("#profileModalLabel").text("Edit Sending Profile")
+        profile = profiles[idx]
+        $("#name").val(profile.name)
+        $("#interface_type").val(profile.interface_type)
+        $("#from").val(profile.from_address)
+        $("#host").val(profile.host)
+        $("#username").val(profile.username)
+        $("#password").val(profile.password)
+        $("#ignore_cert_errors").prop("checked", profile.ignore_cert_errors)
+        $.each(profile.headers, function (i, record) {
+            addCustomHeader(record.key, record.value)
+        });
+    
+    // make not Editable
+    $("#modalSubmit").hide()
+    $(".addHeaders").hide()
+    $("#name").attr('readonly', true)
+    $("#interface_type").attr('readonly', true)
+    $("#from").attr('readonly', true)
+    $("#host").attr('readonly', true)
+    $("#username").attr('readonly', true)
+    $("#password").attr('readonly', true)
+    $("#ignore_cert_errors").attr("disabled", true)
 }
 
 function edit(idx) {
@@ -191,40 +235,69 @@ function load() {
     $("#loading").show()
     api.SMTP.get()
         .success(function (ss) {
-            profiles = ss
-            $("#loading").hide()
-            if (profiles.length > 0) {
-                $("#profileTable").show()
-                profileTable = $("#profileTable").DataTable({
-                    destroy: true,
-                    columnDefs: [{
-                        orderable: false,
-                        targets: "no-sort"
-                    }]
-                });
-                profileTable.clear()
-                profileRows = []
-                $.each(profiles, function (i, profile) {
-                    profileRows.push([
-                        escapeHtml(profile.name),
-                        profile.interface_type,
-                        moment(profile.modified_date).format('MMMM Do YYYY, h:mm:ss a'),
-                        "<div class='pull-right'><span data-toggle='modal' data-backdrop='static' data-target='#modal'><button class='btn btn-primary' data-toggle='tooltip' data-placement='left' title='Edit Profile' onclick='edit(" + i + ")'>\
-                    <i class='fa fa-pencil'></i>\
-                    </button></span>\
-		    <span data-toggle='modal' data-target='#modal'><button class='btn btn-primary' data-toggle='tooltip' data-placement='left' title='Copy Profile' onclick='copy(" + i + ")'>\
-                    <i class='fa fa-copy'></i>\
-                    </button></span>\
-                    <button class='btn btn-danger' data-toggle='tooltip' data-placement='left' title='Delete Profile' onclick='deleteProfile(" + i + ")'>\
-                    <i class='fa fa-trash-o'></i>\
-                    </button></div>"
-                    ])
-                })
-                profileTable.rows.add(profileRows).draw()
-                $('[data-toggle="tooltip"]').tooltip()
-            } else {
-                $("#emptyMessage").show()
-            }
+            api.user.current().success(function (u) {
+                teams = u.teams
+                profiles = ss
+                $("#loading").hide()
+                if (profiles.length > 0) {
+                    $("#profileTable").show()
+                    profileTable = $("#profileTable").DataTable({
+                        destroy: true,
+                        columnDefs: [{
+                            orderable: false,
+                            targets: "no-sort"
+                        }]
+                    });
+                    profileTable.clear()
+                    profileRows = []
+                    profiles = profiles.filter((item, index, self) => 
+                        index === self.findIndex((t) => t.id === item.id)
+                        );
+                        
+                        $.each(profiles, function (i, profile) {
+                            var permissions = {
+                                canDelete : false,
+                                canEdit : false,
+                            };
+                            permissions = CheckTeam(profile.teams, u)
+
+                            var isOwner = false;
+                            if (u.id == profile.user_id){
+                                var isOwner = true;
+                            }
+                        profileRows.push([
+                            escapeHtml(profile.name),
+                            profile.interface_type,
+                            moment(profile.modified_date).format('MMMM Do YYYY, h:mm:ss a'),
+                            "<div class='pull-right'>\
+                            <span data-toggle='modal' data-backdrop='static' data-target='#modal'>\
+                            " + (isOwner || permissions.canEdit ? "<button class='btn btn-primary' data-toggle='tooltip' data-placement='left' title='Edit Profile' onclick='edit("+ i + ")')>\
+                            <i class='fa fa-pencil'></i>\
+                            </button>" :
+                            "<button class='btn btn-primary' data-toggle='tooltip' data-placement='left' title='View Profile' onclick='view("+ i + ")')></i>\
+                            <i class='fa fa-eye'></i>\
+                            </button>") + "\
+                            </span>\
+                            <span data-toggle='modal' data-target='#modal'>\
+                                <button class='btn btn-primary' data-toggle='tooltip' data-placement='left' title='Copy Profile' onclick='copy(" + i + ")'>\
+                                    <i class='fa fa-copy'></i>\
+                                </button>\
+                            </span>\
+                            <button class='btn " + (isOwner || permissions.canDelete ? "btn-danger" : "btn-secondary disabled") + "' data-toggle='tooltip' data-placement='left' title='" + (isOwner || permissions.canDelete ? "Delete Profile" : "You dont have permission to delete this profile") + "' " + (isOwner || permissions.canDelete ? "onclick='deleteProfile(" + i + ")'" : "disabled") + ">\
+                                <i class='fa fa-trash-o'></i>\
+                            </button>\
+                            <button id='teams_button' type='button' class='btn "+ (isOwner ? "btn-orange" : "btn-secondary disabled") + "' data-toggle='modal' data-backdrop='static' data-target='#team_modal'" + (isOwner ? "onclick='team("+ i + ")'" : "disabled") + "'>\
+                            <i class='fa fa-users'></i> Update teams\
+                            </button>\
+                        </div>"
+                        ])
+                    })
+                    profileTable.rows.add(profileRows).draw()
+                    $('[data-toggle="tooltip"]').tooltip()
+                } else {
+                    $("#emptyMessage").show()
+                }
+            })
         })
         .error(function () {
             $("#loading").hide()
@@ -333,3 +406,7 @@ $(document).ready(function () {
     });
     load()
 })
+
+function team(i) {
+    updateItemTeamsAssignment(profiles[i], item_type, teams)
+}

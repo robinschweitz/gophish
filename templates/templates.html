@@ -50,7 +50,7 @@
                     <input type="text" class="form-control" ng-model="template.name" placeholder="Template name" id="name"
                         autofocus />
                 </div>
-                <div class="form-group">
+                <div class="form-group importEmail">
                     <button class="btn btn-danger" data-toggle="modal" data-backdrop="static" data-target="#importEmailModal"><i
                             class="fa fa-envelope"></i>
                         Import Email</button>
@@ -81,7 +81,7 @@
                     <input id="use_tracker_checkbox" type="checkbox" checked>
                     <label for="use_tracker_checkbox">Add Tracking Image</label>
                 </div>
-                <span class="btn btn-danger btn-file"><i class="fa fa-plus"></i> Add Files
+                <span class="btn btn-danger btn-file attachmentUpload"><i class="fa fa-plus"></i> Add Files
                     <input id="attachmentUpload" type="file" onchange="attach(this.files)" multiple>
                 </span>
                 <br />
@@ -135,10 +135,56 @@
         </div>
     </div>
 </div>
+<!-- Modal -->
+<div class="modal fade" id="team_modal" tabindex="-1" role="dialog" aria-labelledby="modalLabel">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+                <h4 class="modal-title" id="campaignModalLabel">Add Team</h4>
+            </div>
+            <div class="modal-body" id="modal_body">
+                <div class="row" id="modal.flashes"></div>
+                <div class="row">
+                    <form id="teamTargetForm">
+                            <div class="col-sm-4">
+                            <label class="control-label" for="team">Add Team:</label>
+
+                            <select class="form-control" placeholder="Team Name" id="team">
+                            </select>
+                            </div>
+                            <div class="col-sm-8">
+                            <button type="submit" class="btn btn-danger btn-lg" style="float: right;">
+                                <i class="fa fa-plus"></i> Add</button>
+                            </div>
+                            <option></option>
+                    </form>
+                </div>
+                <br />
+                <table id="teamTargetsTable" class="table table-hover table-striped table-condensed">
+                    <thead>
+                        <tr>
+                            <th>Team Name</th>
+                            <th>Team Id</th>
+                            <th class="no-sort"></th>
+                    <tbody>
+                    </tbody>
+                </table>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal" onclick="dismiss()">Close</button>
+                <button type="button" class="btn btn-primary" id="modalSubmitTeam">Save changes</button>
+            </div>
+        </div>
+    </div>
+</div> 
 {{end}}
 {{define "scripts"}}
 <script src="/js/src/vendor/ckeditor/ckeditor.js"></script>
 <script src="/js/src/vendor/ckeditor/adapters/jquery.js"></script>
 <script src="/js/dist/app/autocomplete.min.js"></script>
 <script src="/js/dist/app/templates.min.js"></script>
+<script src="/js/dist/app/utils.min.js"></script>
 {{end}}

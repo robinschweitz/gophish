@@ -1,4 +1,6 @@
 var groups = []
+var teams = []
+var item_type = "groups"
 
 // Save attempts to POST or PUT to /groups/
 function save(id) {
@@ -73,13 +75,13 @@ function edit(id) {
                 $("#name").val(group.name)
                 targetRows = []
                 $.each(group.targets, function (i, record) {
-                  targetRows.push([
-                      escapeHtml(record.first_name),
-                      escapeHtml(record.last_name),
-                      escapeHtml(record.email),
-                      escapeHtml(record.position),
-                      '<span style="cursor:pointer;"><i class="fa fa-trash-o"></i></span>'
-                  ])
+                    targetRows.push([
+                        escapeHtml(record.first_name),
+                        escapeHtml(record.last_name),
+                        escapeHtml(record.email),
+                        escapeHtml(record.position),
+                        '<span style="cursor:pointer;"><i class="fa fa-trash-o"></i></span>'
+                    ])
                 });
                 targets.DataTable().rows.add(targetRows).draw()
             })
@@ -115,6 +117,43 @@ function edit(id) {
             targets.DataTable().draw();
         }
     })
+}
+
+function view(idx) {
+    $("#modalSubmit").unbind('click').click(function () {
+        save(idx)
+    })
+    targets = $("#targetsTable").dataTable({
+        destroy: true, // Destroy any other instantiated table - http://datatables.net/manual/tech-notes/3#destroy
+        columnDefs: [{
+            orderable: false,
+            targets: "no-sort"
+        }]
+    })
+    $("#groupModalLabel").text("Edit Group");
+    api.groupId.get(idx)
+        .success(function (group) {
+            $("#name").val(group.name)
+            targetRows = []
+            $.each(group.targets, function (i, record) {
+                targetRows.push([
+                    escapeHtml(record.first_name),
+                    escapeHtml(record.last_name),
+                    escapeHtml(record.email),
+                    escapeHtml(record.position),
+                    ''
+                ])
+            });
+            targets.DataTable().rows.add(targetRows).draw()
+        })
+        .error(function () {
+            errorFlash("Error fetching group")
+        })
+    // make not Editable
+    $("#modalSubmit").hide()
+    $(".add-users").hide()
+    $(".import-users").hide()
+    $("#name").attr('readonly', true)    
 }
 
 var downloadCSVTemplate = function () {
@@ -172,7 +211,7 @@ var deleteGroup = function (id) {
             })
         }
     }).then(function (result) {
-        if (result.value){
+        if (result.value) {
             Swal.fire(
                 'Group Deleted!',
                 'This group has been deleted!',
@@ -222,37 +261,69 @@ function load() {
     $("#loading").show()
     api.groups.summary()
         .success(function (response) {
-            $("#loading").hide()
-            if (response.total > 0) {
-                groups = response.groups
-                $("#emptyMessage").hide()
-                $("#groupTable").show()
-                var groupTable = $("#groupTable").DataTable({
-                    destroy: true,
-                    columnDefs: [{
-                        orderable: false,
-                        targets: "no-sort"
-                    }]
-                });
-                groupTable.clear();
-                groupRows = []
-                $.each(groups, function (i, group) {
-                    groupRows.push([
-                        escapeHtml(group.name),
-                        escapeHtml(group.num_targets),
-                        moment(group.modified_date).format('MMMM Do YYYY, h:mm:ss a'),
-                        "<div class='pull-right'><button class='btn btn-primary' data-toggle='modal' data-backdrop='static' data-target='#modal' onclick='edit(" + group.id + ")'>\
-                    <i class='fa fa-pencil'></i>\
-                    </button>\
-                    <button class='btn btn-danger' onclick='deleteGroup(" + group.id + ")'>\
-                    <i class='fa fa-trash-o'></i>\
-                    </button></div>"
-                    ])
-                })
-                groupTable.rows.add(groupRows).draw()
-            } else {
-                $("#emptyMessage").show()
-            }
+            api.user.current().success(function (u) {
+                teams = u.teams
+                $("#loading").hide()
+                if (response.total > 0) {
+                    groups = response.groups
+                    $("#emptyMessage").hide()
+                    $("#groupTable").show()
+                    var groupTable = $("#groupTable").DataTable({
+                        destroy: true,
+                        columnDefs: [{
+                            orderable: false,
+                            targets: "no-sort"
+                        }]
+                    });
+                    groupTable.clear();
+                    groupRows = []
+                    groups = groups.filter((item, index, self) => 
+                    index === self.findIndex((t) => t.id === item.id)
+                    );
+                    
+                    $.each(groups, function (i, group) {
+                        var permissions = {
+                            canDelete : false,
+                            canEdit : false,
+                        };
+                        permissions = CheckTeam(group.teams, u)
+
+                        var isOwner = false;
+                        if (u.id == group.user_id){
+                            var isOwner = true;
+                        }
+                        groupRows.push([
+                            escapeHtml(group.name),
+                            escapeHtml(group.num_targets),
+                            moment(group.modified_date).format('MMMM Do YYYY, h:mm:ss a'),
+                            "<div class='pull-right'>\
+                                <span data-toggle='modal' data-backdrop='static' data-target='#modal'>\
+                                " + (isOwner || permissions.canEdit ? "<button class='btn btn-primary' data-toggle='tooltip' data-placement='left' title='Edit Group' onclick='edit("+ group.id + ")')>\
+                                <i class='fa fa-pencil'></i>\
+                                </button>" :
+                                "<button class='btn btn-primary' data-toggle='tooltip' data-placement='left' title='View Group' onclick='view("+ group.id + ")')></i>\
+                                <i class='fa fa-eye'></i>\
+                                </button>") + "\
+                                </span>\
+                                <span data-toggle='modal' data-target='#modal'>\
+                                    <button class='btn btn-primary' data-toggle='tooltip' data-placement='left' title='Copy Group' onclick='copy(" + group.id + ")'>\
+                                        <i class='fa fa-copy'></i>\
+                                    </button>\
+                                </span>\
+                                <button class='btn " + (isOwner || permissions.canDelete ? "btn-danger" : "btn-secondary disabled") + "' data-toggle='tooltip' data-placement='left' title='" + (isOwner || permissions.canDelete ? "Delete Group" : "You dont have permission to delete this group") + "' " + (isOwner || permissions.canDelete ? "onclick='deleteGroup(" + group.id + ")'" : "disabled") + ">\
+                                    <i class='fa fa-trash-o'></i>\
+                                </button>\
+                                <button id='teams_button' type='button' class='btn "+ (isOwner ? "btn-orange" : "btn-secondary disabled") + "' data-toggle='modal' data-backdrop='static' data-target='#team_modal'" + (isOwner ? "onclick='team("+ i + ")'" : "disabled") + "'>\
+                                <i class='fa fa-users'></i> Update teams\
+                                </button>\
+                            </div>"
+                        ])
+                    })
+                    groupTable.rows.add(groupRows).draw()
+                } else {
+                    $("#emptyMessage").show()
+                }
+            })
         })
         .error(function () {
             errorFlash("Error fetching groups")
@@ -294,3 +365,7 @@ $(document).ready(function () {
     });
     $("#csv-template").click(downloadCSVTemplate)
 });
+
+function team(i) {
+    updateItemTeamsAssignment(groups[i], item_type, teams)
+}

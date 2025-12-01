@@ -50,14 +50,34 @@ func (s *ModelsSuite) createCampaignDependencies(ch *check.C, optional ...string
 	// we use the optional parameter to pass an alternative subject
 	group := Group{Name: "Test Group"}
 	group.Targets = []Target{
-		Target{BaseRecipient: BaseRecipient{Email: "test1@example.com", FirstName: "First", LastName: "Example"}},
-		Target{BaseRecipient: BaseRecipient{Email: "test2@example.com", FirstName: "Second", LastName: "Example"}},
-		Target{BaseRecipient: BaseRecipient{Email: "test3@example.com", FirstName: "Second", LastName: "Example"}},
-		Target{BaseRecipient: BaseRecipient{Email: "test4@example.com", FirstName: "Second", LastName: "Example"}},
+		{BaseRecipient: BaseRecipient{Email: "test1@example.com", FirstName: "First", LastName: "Example"}},
+		{BaseRecipient: BaseRecipient{Email: "test2@example.com", FirstName: "Second", LastName: "Example"}},
+		{BaseRecipient: BaseRecipient{Email: "test3@example.com", FirstName: "Second", LastName: "Example"}},
+		{BaseRecipient: BaseRecipient{Email: "test4@example.com", FirstName: "Second", LastName: "Example"}},
 	}
 	group.UserId = 1
 	ch.Assert(PostGroup(&group), check.Equals, nil)
 
+	// Add a sending profile
+	smtp := SMTP{Name: "Test Page"}
+	smtp.UserId = 1
+	smtp.Host = "example.com"
+	smtp.FromAddress = "test@test.com"
+	ch.Assert(PostSMTP(&smtp), check.Equals, nil)
+
+	sc := s.createScenarioDependencies(ch, optional...)
+	ch.Assert(PostScenario(&sc, 1), check.Equals, nil)
+
+	c := Campaign{Name: "Test campaign"}
+	c.UserId = 1
+	c.Scenarios = append(c.Scenarios, sc)
+	c.UserId = 1
+	c.SMTP = smtp
+	c.Groups = []Group{group}
+	return c
+}
+
+func (s *ModelsSuite) createScenarioDependencies(ch *check.C, optional ...string) Scenario {
 	// Add a template
 	t := Template{Name: "Test Template"}
 	if len(optional) > 0 {
@@ -76,20 +96,9 @@ func (s *ModelsSuite) createCampaignDependencies(ch *check.C, optional ...string
 	p.UserId = 1
 	ch.Assert(PostPage(&p), check.Equals, nil)
 
-	// Add a sending profile
-	smtp := SMTP{Name: "Test Page"}
-	smtp.UserId = 1
-	smtp.Host = "example.com"
-	smtp.FromAddress = "test@test.com"
-	ch.Assert(PostSMTP(&smtp), check.Equals, nil)
+	sc := Scenario{UserId: 1, Name: "Test", Description: "Test", Templates: append([]Template{}, t), Page: p, URL: "localhost"}
 
-	c := Campaign{Name: "Test campaign"}
-	c.UserId = 1
-	c.Template = t
-	c.Page = p
-	c.SMTP = smtp
-	c.Groups = []Group{group}
-	return c
+	return sc
 }
 
 func (s *ModelsSuite) createCampaign(ch *check.C) Campaign {

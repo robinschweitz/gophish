@@ -225,3 +225,32 @@ func (as *Server) User(w http.ResponseWriter, r *http.Request) {
 		JSONResponse(w, existingUser, http.StatusOK)
 	}
 }
+
+// GetUserTeams gives back the Teams related to the user
+func (as *Server) GetUserTeams(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		vars := mux.Vars(r)
+		id, _ := strconv.ParseInt(vars["id"], 0, 64)
+
+		teams, err := models.UserTeams(id)
+		if err != nil {
+			JSONResponse(w, models.Response{Success: false, Message: err.Error()}, http.StatusInternalServerError)
+			return
+		}
+
+		JSONResponse(w, teams, http.StatusOK)
+	} else {
+		JSONResponse(w, models.Response{Success: false, Message: "Method not supported"}, http.StatusBadRequest)
+	}
+}
+
+// Used to get Information about the current user
+func (as *Server) GetCurrent(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		currentUser := ctx.Get(r, "user").(models.User) //.(models.User)
+
+		JSONResponse(w, currentUser, http.StatusOK)
+	} else {
+		JSONResponse(w, models.Response{Success: false, Message: "Method not supported"}, http.StatusBadRequest)
+	}
+}

@@ -31,10 +31,10 @@ func (as *Server) Pages(w http.ResponseWriter, r *http.Request) {
 			JSONResponse(w, models.Response{Success: false, Message: "Invalid request"}, http.StatusBadRequest)
 			return
 		}
-		// Check to make sure the name is unique
-		_, err = models.GetPageByName(p.Name, ctx.Get(r, "user_id").(int64))
+		//Check if page exists. Doesnt allow to post a Page with a id that already exists.
+		_, err = models.GetPage(p.Id, ctx.Get(r, "user_id").(int64))
 		if err != gorm.ErrRecordNotFound {
-			JSONResponse(w, models.Response{Success: false, Message: "Page name already in use"}, http.StatusConflict)
+			JSONResponse(w, models.Response{Success: false, Message: "Page already exists"}, http.StatusConflict)
 			log.Error(err)
 			return
 		}
@@ -55,6 +55,8 @@ func (as *Server) Page(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id, _ := strconv.ParseInt(vars["id"], 0, 64)
 	p, err := models.GetPage(id, ctx.Get(r, "user_id").(int64))
+	// safe the user_id for later use.
+	page_user := p.UserId
 	if err != nil {
 		JSONResponse(w, models.Response{Success: false, Message: "Page not found"}, http.StatusNotFound)
 		return
@@ -63,6 +65,10 @@ func (as *Server) Page(w http.ResponseWriter, r *http.Request) {
 	case r.Method == "GET":
 		JSONResponse(w, p, http.StatusOK)
 	case r.Method == "DELETE":
+		if models.GetPageScenariosCount(id) >= 1{
+			JSONResponse(w, models.Response{Success: false, Message: "Cant delete template since it is still attached to at least one scenario"}, http.StatusUnprocessableEntity)
+			return
+		}
 		err = models.DeletePage(id, ctx.Get(r, "user_id").(int64))
 		if err != nil {
 			JSONResponse(w, models.Response{Success: false, Message: "Error deleting page"}, http.StatusInternalServerError)
@@ -80,7 +86,8 @@ func (as *Server) Page(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		p.ModifiedDate = time.Now().UTC()
-		p.UserId = ctx.Get(r, "user_id").(int64)
+		// use the original user as the page owner
+		p.UserId = page_user
 		err = models.PutPage(&p)
 		if err != nil {
 			JSONResponse(w, models.Response{Success: false, Message: "Error updating page: " + err.Error()}, http.StatusInternalServerError)

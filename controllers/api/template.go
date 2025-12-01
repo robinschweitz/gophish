@@ -31,9 +31,11 @@ func (as *Server) Templates(w http.ResponseWriter, r *http.Request) {
 			JSONResponse(w, models.Response{Success: false, Message: "Invalid JSON structure"}, http.StatusBadRequest)
 			return
 		}
-		_, err = models.GetTemplateByName(t.Name, ctx.Get(r, "user_id").(int64))
+		//Check if template exists
+		_, err = models.GetTemplate(t.Id, ctx.Get(r, "user_id").(int64))
 		if err != gorm.ErrRecordNotFound {
-			JSONResponse(w, models.Response{Success: false, Message: "Template name already in use"}, http.StatusConflict)
+			JSONResponse(w, models.Response{Success: false, Message: "Template already exists"}, http.StatusConflict)
+			log.Error(err)
 			return
 		}
 		t.ModifiedDate = time.Now().UTC()
@@ -61,6 +63,7 @@ func (as *Server) Template(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id, _ := strconv.ParseInt(vars["id"], 0, 64)
 	t, err := models.GetTemplate(id, ctx.Get(r, "user_id").(int64))
+	template_owner := t.UserId
 	if err != nil {
 		JSONResponse(w, models.Response{Success: false, Message: "Template not found"}, http.StatusNotFound)
 		return
@@ -69,6 +72,10 @@ func (as *Server) Template(w http.ResponseWriter, r *http.Request) {
 	case r.Method == "GET":
 		JSONResponse(w, t, http.StatusOK)
 	case r.Method == "DELETE":
+		if models.GetTemplateScenariosCount(id) >= 1{
+			JSONResponse(w, models.Response{Success: false, Message: "Cant delete template since it is still attached to at least one scenario"}, http.StatusUnprocessableEntity)
+			return
+		}
 		err = models.DeleteTemplate(id, ctx.Get(r, "user_id").(int64))
 		if err != nil {
 			JSONResponse(w, models.Response{Success: false, Message: "Error deleting template"}, http.StatusInternalServerError)
@@ -86,7 +93,7 @@ func (as *Server) Template(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		t.ModifiedDate = time.Now().UTC()
-		t.UserId = ctx.Get(r, "user_id").(int64)
+		t.UserId = template_owner
 		err = models.PutTemplate(&t)
 		if err != nil {
 			JSONResponse(w, models.Response{Success: false, Message: err.Error()}, http.StatusBadRequest)

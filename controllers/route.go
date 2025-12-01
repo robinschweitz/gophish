@@ -129,8 +129,10 @@ func (as *AdminServer) registerRoutes() {
 	router.HandleFunc("/reset_password", mid.Use(as.ResetPassword, mid.RequireLogin))
 	router.HandleFunc("/campaigns", mid.Use(as.Campaigns, mid.RequireLogin))
 	router.HandleFunc("/campaigns/{id:[0-9]+}", mid.Use(as.CampaignID, mid.RequireLogin))
+	router.HandleFunc("/scenarios", mid.Use(as.Scenarios, mid.RequireLogin))
 	router.HandleFunc("/templates", mid.Use(as.Templates, mid.RequireLogin))
 	router.HandleFunc("/groups", mid.Use(as.Groups, mid.RequireLogin))
+	router.HandleFunc("/teams", mid.Use(as.TeamManagement, mid.RequirePermission(models.PermissionModifySystem), mid.RequireLogin))
 	router.HandleFunc("/landing_pages", mid.Use(as.LandingPages, mid.RequireLogin))
 	router.HandleFunc("/sending_profiles", mid.Use(as.SendingProfiles, mid.RequireLogin))
 	router.HandleFunc("/settings", mid.Use(as.Settings, mid.RequireLogin))
@@ -208,6 +210,13 @@ func (as *AdminServer) Campaigns(w http.ResponseWriter, r *http.Request) {
 	params := newTemplateParams(r)
 	params.Title = "Campaigns"
 	getTemplate(w, "campaigns").ExecuteTemplate(w, "base", params)
+}
+
+// Scenarios handles the default path and template execution
+func (as *AdminServer) Scenarios(w http.ResponseWriter, r *http.Request) {
+	params := newTemplateParams(r)
+	params.Title = "Scenarios"
+	getTemplate(w, "scenarios").ExecuteTemplate(w, "base", params)
 }
 
 // CampaignID handles the default path and template execution
@@ -292,6 +301,14 @@ func (as *AdminServer) UserManagement(w http.ResponseWriter, r *http.Request) {
 	params := newTemplateParams(r)
 	params.Title = "User Management"
 	getTemplate(w, "users").ExecuteTemplate(w, "base", params)
+}
+
+// TeamManagement is an admin-only handler that allows for the
+// management of teams within Gophish.
+func (as *AdminServer) TeamManagement(w http.ResponseWriter, r *http.Request) {
+	params := newTemplateParams(r)
+	params.Title = "Team Management"
+	getTemplate(w, "teams").ExecuteTemplate(w, "base", params)
 }
 
 func (as *AdminServer) nextOrIndex(w http.ResponseWriter, r *http.Request) {
@@ -393,6 +410,8 @@ func (as *AdminServer) Login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		u.LastLogin = time.Now().UTC()
+		// it will make issues if we try to save the user with the teams
+		u.Teams = []models.Team{}
 		err = models.PutUser(&u)
 		if err != nil {
 			log.Error(err)

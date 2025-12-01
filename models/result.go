@@ -35,6 +35,8 @@ type Result struct {
 	SendDate     time.Time `json:"send_date"`
 	Reported     bool      `json:"reported" sql:"not null"`
 	ModifiedDate time.Time `json:"modified_date"`
+	TemplateId   int64     `json:"template_id"`
+	ScenarioId   int64     `json:"scenario_id"`
 	BaseRecipient
 }
 

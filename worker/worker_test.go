@@ -70,6 +70,10 @@ func createTestData(t *testing.T, ctx *testContext) {
 	p.UserId = 1
 	models.PostPage(&p)
 
+	scenario := models.Scenario{UserId: 1, Name: "Redirect Scenario", Description: "Redirect Scenario", Templates: append([]models.Template{}, template), Page: p}
+	scenario.URL = "localhost"
+	models.PostScenario(&scenario, 1)
+
 	// Add a sending profile
 	smtp := models.SMTP{Name: "Test Page"}
 	smtp.UserId = 1
@@ -78,23 +82,17 @@ func createTestData(t *testing.T, ctx *testContext) {
 	models.PostSMTP(&smtp)
 }
 
-func setupCampaign(id int) (*models.Campaign, error) {
+func setupCampaign(id int, t *testing.T) (*models.Campaign, error) {
 	// Setup and "launch" our campaign
 	// Set the status such that no emails are attempted
 	c := models.Campaign{Name: fmt.Sprintf("Test campaign - %d", id)}
 	c.UserId = 1
-	template, err := models.GetTemplate(1, 1)
+
+	scenario, err := models.GetScenario(1, 1)
 	if err != nil {
 		return nil, err
 	}
-	c.Template = template
-
-	page, err := models.GetPage(1, 1)
-	if err != nil {
-		return nil, err
-	}
-	c.Page = page
-
+	c.Scenarios = append([]models.Scenario{}, scenario)
 	smtp, err := models.GetSMTP(1, 1)
 	if err != nil {
 		return nil, err
@@ -120,7 +118,7 @@ func TestMailLogGrouping(t *testing.T) {
 	// Create the campaigns and unlock the maillogs so that they're picked up
 	// by the worker
 	for i := 0; i < 10; i++ {
-		campaign, err := setupCampaign(i)
+		campaign, err := setupCampaign(i, t)
 		if err != nil {
 			t.Fatalf("error creating campaign: %v", err)
 		}
@@ -132,7 +130,6 @@ func TestMailLogGrouping(t *testing.T) {
 			m.Unlock()
 		}
 	}
-
 	lm := &logMailer{queue: make(chan []mailer.Mail)}
 	worker := &DefaultWorker{}
 	worker.mailer = lm

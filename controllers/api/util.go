@@ -32,7 +32,7 @@ func (as *Server) SendTestEmail(w http.ResponseWriter, r *http.Request) {
 	storeRequest := false
 
 	// If a Template is not specified use a default
-	if s.Template.Name == "" {
+	if s.Template.Id == 0 {
 		//default message body
 		text := "It works!\n\nThis is an email letting you know that your gophish\nconfiguration was successful.\n" +
 			"Here are the details:\n\nWho you sent from: {{.From}}\n\nWho you sent to: \n" +
@@ -46,11 +46,11 @@ func (as *Server) SendTestEmail(w http.ResponseWriter, r *http.Request) {
 		}
 		s.Template = t
 	} else {
-		// Get the Template requested by name
-		s.Template, err = models.GetTemplateByName(s.Template.Name, s.UserId)
+		// Get the Template requested
+		s.Template, err = models.GetTemplate(s.Template.Id, s.UserId)
 		if err == gorm.ErrRecordNotFound {
 			log.WithFields(logrus.Fields{
-				"template": s.Template.Name,
+				"template": s.Template.Id,
 			}).Error("Template does not exist")
 			JSONResponse(w, models.Response{Success: false, Message: models.ErrTemplateNotFound.Error()}, http.StatusBadRequest)
 			return
@@ -59,17 +59,16 @@ func (as *Server) SendTestEmail(w http.ResponseWriter, r *http.Request) {
 			JSONResponse(w, models.Response{Success: false, Message: err.Error()}, http.StatusBadRequest)
 			return
 		}
-		s.TemplateId = s.Template.Id
 		// We'll only save the test request to the database if there is a
 		// user-specified template to use.
 		storeRequest = true
 	}
 
-	if s.Page.Name != "" {
-		s.Page, err = models.GetPageByName(s.Page.Name, s.UserId)
+	if s.Page.Id != 0 {
+		s.Page, err = models.GetPage(s.Page.Id, s.UserId)
 		if err == gorm.ErrRecordNotFound {
 			log.WithFields(logrus.Fields{
-				"page": s.Page.Name,
+				"page": s.Page.Id,
 			}).Error("Page does not exist")
 			JSONResponse(w, models.Response{Success: false, Message: models.ErrPageNotFound.Error()}, http.StatusBadRequest)
 			return
@@ -78,13 +77,12 @@ func (as *Server) SendTestEmail(w http.ResponseWriter, r *http.Request) {
 			JSONResponse(w, models.Response{Success: false, Message: err.Error()}, http.StatusBadRequest)
 			return
 		}
-		s.PageId = s.Page.Id
 	}
 
 	// If a complete sending profile is provided use it
 	if err := s.SMTP.Validate(); err != nil {
 		// Otherwise get the SMTP requested by name
-		smtp, lookupErr := models.GetSMTPByName(s.SMTP.Name, s.UserId)
+		smtp, lookupErr := models.GetSMTP(s.SMTP.Id, s.UserId)
 		// If the Sending Profile doesn't exist, let's err on the side
 		// of caution and assume that the validation failure was more important.
 		if lookupErr != nil {
