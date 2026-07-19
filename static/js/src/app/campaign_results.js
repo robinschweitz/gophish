@@ -116,6 +116,28 @@ var progressListing = [
 
 var campaign = {}
 var bubbles = []
+var campaignPlan = {}
+var resultColumns = {
+    select: 0,
+    id: 1,
+    details: 2,
+    sendDate: 3,
+    firstName: 4,
+    lastName: 5,
+    email: 6,
+    position: 7,
+    scenario: 8,
+    template: 9,
+    status: 10,
+    reported: 11,
+    actions: 12,
+    rawSendDate: 13
+}
+var scheduleMetadata = {
+    scenarios: {},
+    templates: {},
+    templateModels: {}
+}
 
 function dismiss() {
     $("#modal\\.flashes").empty()
@@ -299,10 +321,10 @@ function replay(event_idx) {
 /**
  * Returns an HTML string that displays the OS and browser that clicked the link
  * or submitted credentials.
- * 
+ *
  * @param {object} event_details - The "details" parameter for a campaign
  *  timeline event
- * 
+ *
  */
 var renderDevice = function (event_details) {
     var ua = UAParser(details.browser['user-agent'])
@@ -371,14 +393,16 @@ var renderDevice = function (event_details) {
 
 function renderTimeline(data) {
     record = {
-        "id": data[0],
-        "first_name": data[2],
-        "last_name": data[3],
-        "email": data[4],
-        "position": data[5],
-        "status": data[6],
-        "reported": data[7],
-        "send_date": data[8]
+        "id": data[resultColumns.id],
+        "first_name": data[resultColumns.firstName],
+        "last_name": data[resultColumns.lastName],
+        "email": data[resultColumns.email],
+        "position": data[resultColumns.position],
+        "scenario": data[resultColumns.scenario],
+        "template": data[resultColumns.template],
+        "status": data[resultColumns.status],
+        "reported": data[resultColumns.reported],
+        "send_date": data[resultColumns.sendDate]
     }
     results = '<div class="timeline col-sm-12 well well-lg">' +
         '<h6>Timeline for ' + escapeHtml(record.first_name) + ' ' + escapeHtml(record.last_name) +
@@ -441,7 +465,8 @@ function renderTimeline(data) {
         results +=
             '    <div class="timeline-icon ' + statuses[record.status].label + '">' +
             '    <i class="fa ' + statuses[record.status].icon + '"></i></div>' +
-            '    <div class="timeline-message">' + "Scheduled to send at " + record.send_date + '</span>'
+            '    <div class="timeline-message">' + record.scenario + ' ' + record.template +
+            '<br>Scheduled to send at ' + record.send_date + '</span>'
     }
     results += '</div></div>'
     return results
@@ -613,8 +638,8 @@ var updateMap = function (results) {
 
 /**
  * Creates a status label for use in the results datatable
- * @param {string} status 
- * @param {moment(datetime)} send_date 
+ * @param {string} status
+ * @param {moment(datetime)} send_date
  */
 function createStatusLabel(status, send_date) {
     var label = statuses[status].label || "label-default";
@@ -625,6 +650,403 @@ function createStatusLabel(status, send_date) {
         statusColumn = "<span class=\"label " + label + "\" data-toggle=\"tooltip\" data-placement=\"top\" data-html=\"true\" title=\"" + sendDateMessage + "\">" + status + "</span>"
     }
     return statusColumn
+}
+
+function isScheduleEditable(result) {
+    return result.status == "Scheduled" || result.status == "Retrying"
+}
+
+function buildScheduleMetadata(c) {
+    scheduleMetadata = {
+        scenarios: {},
+        templates: {},
+        templateScenarios: {},
+        templateModels: {}
+    }
+    $("#schedule_filter_scenario").find("option:not(:first)").remove()
+    $("#schedule_filter_template").find("option:not(:first)").remove()
+    $.each(c.scenarios || [], function (i, scenario) {
+        scheduleMetadata.scenarios[scenario.id] = scenario.name
+        $("#schedule_filter_scenario").append($("<option>").val(scenario.id).text(scenario.name))
+        $.each(scenario.templates || [], function (j, template) {
+            scheduleMetadata.templates[template.id] = template.name
+            scheduleMetadata.templateScenarios[template.id] = scenario
+            scheduleMetadata.templateModels[template.id] = template
+            $("#schedule_filter_template").append($("<option>").val(template.id).text(template.name))
+        })
+    })
+}
+
+function getScenarioName(result) {
+    return scheduleMetadata.scenarios[result.scenario_id] || ("Scenario " + result.scenario_id)
+}
+
+function getTemplateName(result) {
+    return scheduleMetadata.templates[result.template_id] || ("Template " + result.template_id)
+}
+
+function scenarioLabel(result) {
+    var labelClasses = ["label-primary", "label-info", "label-success", "label-warning", "label-default"]
+    var labelClass = labelClasses[Math.abs(result.scenario_id || 0) % labelClasses.length]
+    return "<span class=\"label " + labelClass + "\">" + escapeHtml(getScenarioName(result)) + "</span>"
+}
+
+function templateLabel(result) {
+    return "<span>" + escapeHtml(getTemplateName(result)) + "</span>"
+}
+
+function hasCampaignDate(value) {
+    return value && moment(value).isValid() && moment(value).year() > 1
+}
+
+function renderScenarioTemplateList(c) {
+    var scenarios = ""
+    var firstTemplateId = null
+    $.each(c.scenarios || [], function (i, scenario) {
+        var templates = scenario.templates || []
+        scenarios += "<div class=\"scenario-template-group\">"
+        scenarios += "<div class=\"scenario-template-group-header\">"
+        scenarios += "<strong>" + escapeHtml(scenario.name) + "</strong>"
+        scenarios += "<span class=\"scenario-template-count\">" + templates.length + " template" + (templates.length === 1 ? "" : "s") + "</span>"
+        scenarios += "</div>"
+        $.each(scenario.templates || [], function (j, template) {
+            if (!firstTemplateId) {
+                firstTemplateId = template.id
+            }
+            scenarios += "<button type=\"button\" class=\"scenario-template-option\" data-template-id=\"" + template.id + "\" onclick=\"showTemplatePreview(" + template.id + ")\">"
+            scenarios += "<span class=\"scenario-template-option-name\">" + escapeHtml(template.name) + "</span>"
+            scenarios += "<span class=\"scenario-template-option-subject\">" + escapeHtml(template.subject || "No subject") + "</span>"
+            scenarios += "</button>"
+        })
+        scenarios += "</div>"
+    })
+    $("#scenario_template_list").html(scenarios || "<p class=\"text-muted\">No scenarios or templates.</p>")
+    if (firstTemplateId) {
+        showTemplatePreview(firstTemplateId)
+    }
+}
+
+function renderCampaignPlan(c) {
+    campaignPlan = c
+    $("#plan_launch_date").text(hasCampaignDate(c.launch_date) ? moment(c.launch_date).format("MMMM Do YYYY, h:mm:ss a") : "-")
+    $("#plan_send_by_date").text(hasCampaignDate(c.send_by_date) ? moment(c.send_by_date).format("MMMM Do YYYY, h:mm:ss a") : "Immediate")
+
+    var start = hasCampaignDate(c.start_time) ? moment(c.start_time).format("h:mm a") : "-"
+    var end = hasCampaignDate(c.end_time) ? moment(c.end_time).format("h:mm a") : "-"
+    $("#plan_sending_window").text(start + " - " + end)
+    $("#plan_location").text(c.location || "UTC")
+    renderScenarioTemplateList(c)
+}
+
+function showTemplatePreview(templateId) {
+    var template = scheduleMetadata.templateModels[templateId]
+    if (!template) {
+        errorFlash("Template not found")
+        return
+    }
+    var scenario = scheduleMetadata.templateScenarios[templateId]
+    $(".scenario-template-option").removeClass("active")
+    $(".scenario-template-option[data-template-id='" + templateId + "']").addClass("active")
+    $("#template_preview_scenario").text(scenario ? scenario.name : "Scenario")
+    $("#template_preview_name").text(template.name)
+    $("#template_preview_subject").text(template.subject || "-")
+    $("#template_preview_text").text(template.text || "")
+    var htmlFrame = $("#template_preview_html")[0]
+    htmlFrame.srcdoc = template.html || "<html><body></body></html>"
+}
+
+function recipientName(result) {
+    var name = $.trim((result.first_name || "") + " " + (result.last_name || ""))
+    if (name.length > 0) {
+        return name + " <" + result.email + ">"
+    }
+    return result.email
+}
+
+function toLocalDateTimeInputValue(date) {
+    return moment(date).local().format("YYYY-MM-DDTHH:mm")
+}
+
+function scheduleRequestDate(value) {
+    return moment(value).utc().format()
+}
+
+function selectedScheduleRows() {
+    var rows = []
+    $(".schedule-select:checked").each(function () {
+        var rid = $(this).data("rid")
+        var result = findResult(rid)
+        if (result && isScheduleEditable(result)) {
+            rows.push(result)
+        }
+    })
+    return rows
+}
+
+function findResult(rid) {
+    var found = null
+    $.each(campaign.results || [], function (i, result) {
+        if (result.id == rid) {
+            found = result
+            return false
+        }
+    })
+    return found
+}
+
+function updateResultInCampaign(updated) {
+    $.each(campaign.results || [], function (i, result) {
+        if (result.id == updated.id) {
+            campaign.results[i] = updated
+            return false
+        }
+    })
+}
+
+function updateResultsTableRow(updated) {
+    var table = $("#resultsTable").DataTable()
+    table.rows().every(function (i) {
+        var row = this.row(i)
+        var rowData = row.data()
+        if (rowData[resultColumns.id] == updated.id) {
+            rowData[resultColumns.sendDate] = moment(updated.send_date).format('MMMM Do YYYY, h:mm:ss a')
+            rowData[resultColumns.scenario] = scenarioLabel(updated)
+            rowData[resultColumns.template] = templateLabel(updated)
+            rowData[resultColumns.status] = updated.status
+            rowData[resultColumns.reported] = updated.reported
+            rowData[resultColumns.actions] = "<div class=\"text-right\">" + scheduleActionButton(updated) + "</div>"
+            rowData[resultColumns.rawSendDate] = updated.send_date
+            table.row(i).data(rowData)
+            return false
+        }
+    })
+    table.draw(false)
+}
+
+function scheduleActionButton(result) {
+    if (!isScheduleEditable(result)) {
+        return "<button class=\"btn btn-default btn-xs\" disabled><i class=\"fa fa-lock\"></i></button>"
+    }
+    return "<button class=\"btn btn-primary btn-xs\" onclick=\"openScheduleEdit('" + result.id + "')\" data-toggle=\"tooltip\" title=\"Edit send time\"><i class=\"fa fa-pencil\"></i></button>"
+}
+
+function renderScheduleSummary(results) {
+    var scheduled = []
+    var dayCounts = {}
+    var now = moment()
+    var startOfWeek = moment().startOf("week")
+    var endOfWeek = moment().endOf("week")
+    var todayCount = 0
+    var weekCount = 0
+
+    $.each(results, function (i, result) {
+        if (!isScheduleEditable(result)) {
+            return true
+        }
+        var sendDate = moment(result.send_date)
+        scheduled.push(sendDate)
+        if (sendDate.isSame(now, "day")) {
+            todayCount++
+        }
+        if (sendDate.isBetween(startOfWeek, endOfWeek, null, "[]")) {
+            weekCount++
+        }
+        var dayKey = sendDate.format("YYYY-MM-DD")
+        dayCounts[dayKey] = (dayCounts[dayKey] || 0) + 1
+    })
+
+    scheduled.sort(function (a, b) {
+        return a.valueOf() - b.valueOf()
+    })
+
+    var nextSend = "-"
+    $.each(scheduled, function (i, sendDate) {
+        if (!sendDate.isBefore(now)) {
+            nextSend = sendDate.format("MMM D, YYYY h:mm a")
+            return false
+        }
+    })
+
+    var busiestDay = "-"
+    var busiestCount = 0
+    $.each(dayCounts, function (day, count) {
+        if (count > busiestCount) {
+            busiestCount = count
+            busiestDay = moment(day).format("MMM D, YYYY") + " (" + count + ")"
+        }
+    })
+
+    $("#schedule_next_send").text(nextSend)
+    $("#schedule_today").text(todayCount)
+    $("#schedule_this_week").text(weekCount)
+    $("#schedule_total").text(scheduled.length)
+    $("#schedule_busiest_day").text(busiestDay)
+}
+
+function renderScheduleTable() {
+    var table = $("#resultsTable").DataTable()
+    if (!table) {
+        return
+    }
+    var rows = []
+    $.each(campaign.results || [], function (i, result) {
+        var editable = isScheduleEditable(result)
+        rows.push([
+            editable ? "<input type=\"checkbox\" class=\"schedule-select\" data-rid=\"" + result.id + "\">" : "",
+            result.id,
+            "<i id=\"caret\" class=\"fa fa-caret-right\"></i>",
+            moment(result.send_date).format("MMMM Do YYYY, h:mm:ss a"),
+            escapeHtml(result.first_name) || "",
+            escapeHtml(result.last_name) || "",
+            escapeHtml(result.email) || "",
+            escapeHtml(result.position) || "",
+            scenarioLabel(result),
+            templateLabel(result),
+            result.status,
+            result.reported,
+            "<div class=\"text-right\">" + scheduleActionButton(result) + "</div>",
+            result.send_date
+        ])
+    })
+    table.clear()
+    table.rows.add(rows)
+    table.draw()
+    renderScheduleSummary(campaign.results || [])
+    $('[data-toggle="tooltip"]').tooltip()
+}
+
+function applyScheduleFilters() {
+    var table = $("#resultsTable").DataTable()
+    if (!table) {
+        return
+    }
+    var recipientFilter = $("#schedule_filter_recipient").val()
+    var scenarioFilter = $("#schedule_filter_scenario").val()
+    var templateFilter = $("#schedule_filter_template").val()
+    table.column(resultColumns.email).search(recipientFilter || "")
+    table.column(resultColumns.scenario).search(scenarioFilter ? scheduleMetadata.scenarios[scenarioFilter] : "", false, false)
+    table.column(resultColumns.template).search(templateFilter ? scheduleMetadata.templates[templateFilter] : "", false, false)
+    table.draw()
+}
+
+function openScheduleEdit(rid) {
+    var result = findResult(rid)
+    if (!result) {
+        errorFlash("Schedule result not found")
+        return
+    }
+    $("#schedule_edit_rid").val(result.id)
+    $("#schedule_edit_send_date").val(toLocalDateTimeInputValue(result.send_date))
+    $("#scheduleEditModal").modal("show")
+}
+
+function saveScheduleEdit() {
+    var rid = $("#schedule_edit_rid").val()
+    var sendDate = $("#schedule_edit_send_date").val()
+    if (!sendDate) {
+        errorFlash("Select a send date")
+        return
+    }
+    saveScheduleChange(rid, scheduleRequestDate(sendDate))
+        .success(function () {
+            $("#scheduleEditModal").modal("hide")
+        })
+}
+
+function saveScheduleChange(rid, sendDate) {
+    return api.campaignId.scheduleResult(campaign.id, rid, { send_date: sendDate })
+        .success(function (result) {
+            updateResultInCampaign(result)
+            updateResultsTableRow(result)
+            renderScheduleTable()
+            successFlashFade("Schedule updated", 3)
+        })
+        .error(function (data) {
+            var message = "Error updating schedule"
+            if (data.responseJSON && data.responseJSON.message) {
+                message = data.responseJSON.message
+            }
+            errorFlash(message)
+        })
+}
+
+function openBulkOffsetModal() {
+    if (selectedScheduleRows().length == 0) {
+        errorFlash("Select scheduled emails first")
+        return
+    }
+    $("#scheduleBulkOffsetModal").modal("show")
+}
+
+function openBulkSetModal() {
+    if (selectedScheduleRows().length == 0) {
+        errorFlash("Select scheduled emails first")
+        return
+    }
+    $("#schedule_bulk_set_send_date").val(toLocalDateTimeInputValue(selectedScheduleRows()[0].send_date))
+    $("#scheduleBulkSetModal").modal("show")
+}
+
+function saveBulkOffset() {
+    var minutes = parseInt($("#schedule_bulk_offset_minutes").val(), 10)
+    if (isNaN(minutes)) {
+        errorFlash("Enter a minute offset")
+        return
+    }
+    var changes = $.map(selectedScheduleRows(), function (result) {
+        return {
+            rid: result.id,
+            sendDate: moment(result.send_date).add(minutes, "minutes").utc().format()
+        }
+    })
+    saveBulkScheduleChanges(changes, "#scheduleBulkOffsetModal")
+}
+
+function saveBulkSet() {
+    var sendDate = $("#schedule_bulk_set_send_date").val()
+    if (!sendDate) {
+        errorFlash("Select a send date")
+        return
+    }
+    var changes = $.map(selectedScheduleRows(), function (result) {
+        return {
+            rid: result.id,
+            sendDate: scheduleRequestDate(sendDate)
+        }
+    })
+    saveBulkScheduleChanges(changes, "#scheduleBulkSetModal")
+}
+
+function saveBulkScheduleChanges(changes, modalSelector) {
+    var failures = []
+    var requests = $.map(changes, function (change) {
+        var deferred = $.Deferred()
+        api.campaignId.scheduleResult(campaign.id, change.rid, { send_date: change.sendDate })
+            .success(function (result) {
+                updateResultInCampaign(result)
+                updateResultsTableRow(result)
+                deferred.resolve()
+            })
+            .error(function (data) {
+                var message = "Error updating " + change.rid
+                if (data.responseJSON && data.responseJSON.message) {
+                    message = data.responseJSON.message
+                }
+                failures.push(message)
+                deferred.resolve()
+            })
+        return deferred.promise()
+    })
+
+    $.when.apply($, requests).always(function () {
+        $(modalSelector).modal("hide")
+        renderScheduleTable()
+        if (failures.length > 0) {
+            errorFlash(failures.join("<br>"))
+            return
+        }
+        successFlashFade("Schedule updated", 3)
+    })
 }
 
 /* poll - Queries the API and updates the UI with the results
@@ -699,12 +1121,18 @@ function poll() {
             resultsTable.rows().every(function (i, tableLoop, rowLoop) {
                 var row = this.row(i)
                 var rowData = row.data()
-                var rid = rowData[0]
+                var rid = rowData[resultColumns.id]
                 $.each(campaign.results, function (j, result) {
                     if (result.id == rid) {
-                        rowData[8] = moment(result.send_date).format('MMMM Do YYYY, h:mm:ss a')
-                        rowData[7] = result.reported
-                        rowData[6] = result.status
+                        var editable = isScheduleEditable(result)
+                        rowData[resultColumns.select] = editable ? "<input type=\"checkbox\" class=\"schedule-select\" data-rid=\"" + result.id + "\">" : ""
+                        rowData[resultColumns.sendDate] = moment(result.send_date).format('MMMM Do YYYY, h:mm:ss a')
+                        rowData[resultColumns.scenario] = scenarioLabel(result)
+                        rowData[resultColumns.template] = templateLabel(result)
+                        rowData[resultColumns.status] = result.status
+                        rowData[resultColumns.reported] = result.reported
+                        rowData[resultColumns.actions] = "<div class=\"text-right\">" + scheduleActionButton(result) + "</div>"
+                        rowData[resultColumns.rawSendDate] = result.send_date
                         resultsTable.row(i).data(rowData)
                         if (row.child.isShown()) {
                             $(row.node()).find("#caret").removeClass("fa-caret-right")
@@ -716,6 +1144,7 @@ function poll() {
                 })
             })
             resultsTable.draw(false)
+            renderScheduleTable()
             /* Update the map information */
             updateMap(campaign.results)
             $('[data-toggle="tooltip"]').tooltip()
@@ -756,6 +1185,8 @@ function load() {
         .success(function (c) {
                 campaign = c
                 if (campaign) {
+                    buildScheduleMetadata(campaign)
+                    renderCampaignPlan(campaign)
                     $("title").text(c.name + " - Gophish")
                     $("#loading").hide()
                     $("#campaignResults").show()
@@ -785,23 +1216,23 @@ function load() {
                     resultsTable = $("#resultsTable").DataTable({
                         destroy: true,
                         "order": [
-                            [2, "asc"]
+                            [resultColumns.sendDate, "asc"]
                         ],
                         columnDefs: [{
                                 orderable: false,
                                 targets: "no-sort"
                             }, {
                                 className: "details-control",
-                                "targets": [1]
+                                "targets": [resultColumns.details]
                             }, {
                                 "visible": false,
-                                "targets": [0, 8]
+                                "targets": [resultColumns.id, resultColumns.rawSendDate]
                             },
                             {
                                 "render": function (data, type, row) {
-                                    return createStatusLabel(data, row[8])
+                                    return createStatusLabel(data, row[resultColumns.sendDate])
                                 },
-                                "targets": [6]
+                                "targets": [resultColumns.status]
                             },
                             {
                                 className: "text-center",
@@ -810,14 +1241,20 @@ function load() {
                                         if (reported) {
                                             return "<i class='fa fa-check-circle text-center text-success'></i>"
                                         }
-                                        return "<i role='button' class='fa fa-times-circle text-center text-muted' onclick='report_mail(\"" + row[0] + "\", \"" + campaign.id + "\");'></i>"
+                                        return "<i role='button' class='fa fa-times-circle text-center text-muted' onclick='report_mail(\"" + row[resultColumns.id] + "\", \"" + campaign.id + "\");'></i>"
                                     }
                                     return reported
                                 },
-                                "targets": [7]
+                                "targets": [resultColumns.reported]
                             }
                         ]
                     });
+                    $("#schedule_filter_recipient").on("keyup change", applyScheduleFilters)
+                    $("#schedule_filter_scenario").on("change", applyScheduleFilters)
+                    $("#schedule_filter_template").on("change", applyScheduleFilters)
+                    $("#schedule_select_all").on("change", function () {
+                        $(".schedule-select").prop("checked", $(this).prop("checked"))
+                    })
                     resultsTable.clear();
                     var email_series_data = {}
                     var timeline_series_data = []
@@ -825,16 +1262,22 @@ function load() {
                         email_series_data[k] = 0
                     });
                     $.each(campaign.results, function (i, result) {
+                        var editable = isScheduleEditable(result)
                         resultsTable.row.add([
+                            editable ? "<input type=\"checkbox\" class=\"schedule-select\" data-rid=\"" + result.id + "\">" : "",
                             result.id,
                             "<i id=\"caret\" class=\"fa fa-caret-right\"></i>",
+                            moment(result.send_date).format('MMMM Do YYYY, h:mm:ss a'),
                             escapeHtml(result.first_name) || "",
                             escapeHtml(result.last_name) || "",
                             escapeHtml(result.email) || "",
                             escapeHtml(result.position) || "",
+                            scenarioLabel(result),
+                            templateLabel(result),
                             result.status,
                             result.reported,
-                            moment(result.send_date).format('MMMM Do YYYY, h:mm:ss a')
+                            "<div class=\"text-right\">" + scheduleActionButton(result) + "</div>",
+                            result.send_date
                         ])
                         email_series_data[result.status]++;
                         if (result.reported) {
@@ -847,6 +1290,7 @@ function load() {
                         }
                     })
                     resultsTable.draw();
+                    renderScheduleTable()
                     // Setup tooltips
                     $('[data-toggle="tooltip"]').tooltip()
                     // Setup the individual timelines
@@ -966,7 +1410,7 @@ function report_mail(rid, cid) {
             api.campaignId.get(cid).success((function(c) {
                 report_url = new URL(c.url)
                 report_url.pathname = '/report'
-                report_url.search = "?rid=" + rid 
+                report_url.search = "?rid=" + rid
                 fetch(report_url)
                 .then(response => {
                     if (!response.ok) {
@@ -1001,6 +1445,13 @@ $(document).ready(function () {
 
     // Start the polling loop
     setRefresh = setTimeout(refresh, 60000)
+
+    $("#timelineModal").on("shown.bs.modal", function () {
+        var chart = $("#timeline_chart").highcharts()
+        if (chart) {
+            chart.reflow()
+        }
+    })
 
     // Setup multiple modals
     // Code based on http://miles-by-motorcycle.com/static/bootstrap-modal/index.html
