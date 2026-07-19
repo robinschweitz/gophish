@@ -116,10 +116,27 @@ var progressListing = [
 
 var campaign = {}
 var bubbles = []
-var scheduleTable = null
+var campaignPlan = {}
+var resultColumns = {
+    select: 0,
+    id: 1,
+    details: 2,
+    sendDate: 3,
+    firstName: 4,
+    lastName: 5,
+    email: 6,
+    position: 7,
+    scenario: 8,
+    template: 9,
+    status: 10,
+    reported: 11,
+    actions: 12,
+    rawSendDate: 13
+}
 var scheduleMetadata = {
     scenarios: {},
-    templates: {}
+    templates: {},
+    templateModels: {}
 }
 
 function dismiss() {
@@ -376,14 +393,16 @@ var renderDevice = function (event_details) {
 
 function renderTimeline(data) {
     record = {
-        "id": data[0],
-        "first_name": data[2],
-        "last_name": data[3],
-        "email": data[4],
-        "position": data[5],
-        "status": data[6],
-        "reported": data[7],
-        "send_date": data[8]
+        "id": data[resultColumns.id],
+        "first_name": data[resultColumns.firstName],
+        "last_name": data[resultColumns.lastName],
+        "email": data[resultColumns.email],
+        "position": data[resultColumns.position],
+        "scenario": data[resultColumns.scenario],
+        "template": data[resultColumns.template],
+        "status": data[resultColumns.status],
+        "reported": data[resultColumns.reported],
+        "send_date": data[resultColumns.sendDate]
     }
     results = '<div class="timeline col-sm-12 well well-lg">' +
         '<h6>Timeline for ' + escapeHtml(record.first_name) + ' ' + escapeHtml(record.last_name) +
@@ -446,7 +465,8 @@ function renderTimeline(data) {
         results +=
             '    <div class="timeline-icon ' + statuses[record.status].label + '">' +
             '    <i class="fa ' + statuses[record.status].icon + '"></i></div>' +
-            '    <div class="timeline-message">' + "Scheduled to send at " + record.send_date + '</span>'
+            '    <div class="timeline-message">' + record.scenario + ' ' + record.template +
+            '<br>Scheduled to send at ' + record.send_date + '</span>'
     }
     results += '</div></div>'
     return results
@@ -639,7 +659,9 @@ function isScheduleEditable(result) {
 function buildScheduleMetadata(c) {
     scheduleMetadata = {
         scenarios: {},
-        templates: {}
+        templates: {},
+        templateScenarios: {},
+        templateModels: {}
     }
     $("#schedule_filter_scenario").find("option:not(:first)").remove()
     $("#schedule_filter_template").find("option:not(:first)").remove()
@@ -648,6 +670,8 @@ function buildScheduleMetadata(c) {
         $("#schedule_filter_scenario").append($("<option>").val(scenario.id).text(scenario.name))
         $.each(scenario.templates || [], function (j, template) {
             scheduleMetadata.templates[template.id] = template.name
+            scheduleMetadata.templateScenarios[template.id] = scenario
+            scheduleMetadata.templateModels[template.id] = template
             $("#schedule_filter_template").append($("<option>").val(template.id).text(template.name))
         })
     })
@@ -659,6 +683,76 @@ function getScenarioName(result) {
 
 function getTemplateName(result) {
     return scheduleMetadata.templates[result.template_id] || ("Template " + result.template_id)
+}
+
+function scenarioLabel(result) {
+    var labelClasses = ["label-primary", "label-info", "label-success", "label-warning", "label-default"]
+    var labelClass = labelClasses[Math.abs(result.scenario_id || 0) % labelClasses.length]
+    return "<span class=\"label " + labelClass + "\">" + escapeHtml(getScenarioName(result)) + "</span>"
+}
+
+function templateLabel(result) {
+    return "<span>" + escapeHtml(getTemplateName(result)) + "</span>"
+}
+
+function hasCampaignDate(value) {
+    return value && moment(value).isValid() && moment(value).year() > 1
+}
+
+function renderScenarioTemplateList(c) {
+    var scenarios = ""
+    var firstTemplateId = null
+    $.each(c.scenarios || [], function (i, scenario) {
+        var templates = scenario.templates || []
+        scenarios += "<div class=\"scenario-template-group\">"
+        scenarios += "<div class=\"scenario-template-group-header\">"
+        scenarios += "<strong>" + escapeHtml(scenario.name) + "</strong>"
+        scenarios += "<span class=\"scenario-template-count\">" + templates.length + " template" + (templates.length === 1 ? "" : "s") + "</span>"
+        scenarios += "</div>"
+        $.each(scenario.templates || [], function (j, template) {
+            if (!firstTemplateId) {
+                firstTemplateId = template.id
+            }
+            scenarios += "<button type=\"button\" class=\"scenario-template-option\" data-template-id=\"" + template.id + "\" onclick=\"showTemplatePreview(" + template.id + ")\">"
+            scenarios += "<span class=\"scenario-template-option-name\">" + escapeHtml(template.name) + "</span>"
+            scenarios += "<span class=\"scenario-template-option-subject\">" + escapeHtml(template.subject || "No subject") + "</span>"
+            scenarios += "</button>"
+        })
+        scenarios += "</div>"
+    })
+    $("#scenario_template_list").html(scenarios || "<p class=\"text-muted\">No scenarios or templates.</p>")
+    if (firstTemplateId) {
+        showTemplatePreview(firstTemplateId)
+    }
+}
+
+function renderCampaignPlan(c) {
+    campaignPlan = c
+    $("#plan_launch_date").text(hasCampaignDate(c.launch_date) ? moment(c.launch_date).format("MMMM Do YYYY, h:mm:ss a") : "-")
+    $("#plan_send_by_date").text(hasCampaignDate(c.send_by_date) ? moment(c.send_by_date).format("MMMM Do YYYY, h:mm:ss a") : "Immediate")
+
+    var start = hasCampaignDate(c.start_time) ? moment(c.start_time).format("h:mm a") : "-"
+    var end = hasCampaignDate(c.end_time) ? moment(c.end_time).format("h:mm a") : "-"
+    $("#plan_sending_window").text(start + " - " + end)
+    $("#plan_location").text(c.location || "UTC")
+    renderScenarioTemplateList(c)
+}
+
+function showTemplatePreview(templateId) {
+    var template = scheduleMetadata.templateModels[templateId]
+    if (!template) {
+        errorFlash("Template not found")
+        return
+    }
+    var scenario = scheduleMetadata.templateScenarios[templateId]
+    $(".scenario-template-option").removeClass("active")
+    $(".scenario-template-option[data-template-id='" + templateId + "']").addClass("active")
+    $("#template_preview_scenario").text(scenario ? scenario.name : "Scenario")
+    $("#template_preview_name").text(template.name)
+    $("#template_preview_subject").text(template.subject || "-")
+    $("#template_preview_text").text(template.text || "")
+    var htmlFrame = $("#template_preview_html")[0]
+    htmlFrame.srcdoc = template.html || "<html><body></body></html>"
 }
 
 function recipientName(result) {
@@ -714,10 +808,14 @@ function updateResultsTableRow(updated) {
     table.rows().every(function (i) {
         var row = this.row(i)
         var rowData = row.data()
-        if (rowData[0] == updated.id) {
-            rowData[8] = moment(updated.send_date).format('MMMM Do YYYY, h:mm:ss a')
-            rowData[7] = updated.reported
-            rowData[6] = updated.status
+        if (rowData[resultColumns.id] == updated.id) {
+            rowData[resultColumns.sendDate] = moment(updated.send_date).format('MMMM Do YYYY, h:mm:ss a')
+            rowData[resultColumns.scenario] = scenarioLabel(updated)
+            rowData[resultColumns.template] = templateLabel(updated)
+            rowData[resultColumns.status] = updated.status
+            rowData[resultColumns.reported] = updated.reported
+            rowData[resultColumns.actions] = "<div class=\"text-right\">" + scheduleActionButton(updated) + "</div>"
+            rowData[resultColumns.rawSendDate] = updated.send_date
             table.row(i).data(rowData)
             return false
         }
@@ -763,7 +861,7 @@ function renderScheduleSummary(results) {
 
     var nextSend = "-"
     $.each(scheduled, function (i, sendDate) {
-        if (sendDate.isSameOrAfter(now)) {
+        if (!sendDate.isBefore(now)) {
             nextSend = sendDate.format("MMM D, YYYY h:mm a")
             return false
         }
@@ -786,7 +884,8 @@ function renderScheduleSummary(results) {
 }
 
 function renderScheduleTable() {
-    if (!scheduleTable) {
+    var table = $("#resultsTable").DataTable()
+    if (!table) {
         return
     }
     var rows = []
@@ -794,34 +893,40 @@ function renderScheduleTable() {
         var editable = isScheduleEditable(result)
         rows.push([
             editable ? "<input type=\"checkbox\" class=\"schedule-select\" data-rid=\"" + result.id + "\">" : "",
-            moment(result.send_date).format("MMMM Do YYYY, h:mm:ss a"),
-            escapeHtml(recipientName(result)),
-            escapeHtml(getScenarioName(result)),
-            escapeHtml(getTemplateName(result)),
-            createStatusLabel(result.status, moment(result.send_date).format("MMMM Do YYYY, h:mm:ss a")),
-            "<div class=\"text-right\">" + scheduleActionButton(result) + "</div>",
             result.id,
+            "<i id=\"caret\" class=\"fa fa-caret-right\"></i>",
+            moment(result.send_date).format("MMMM Do YYYY, h:mm:ss a"),
+            escapeHtml(result.first_name) || "",
+            escapeHtml(result.last_name) || "",
+            escapeHtml(result.email) || "",
+            escapeHtml(result.position) || "",
+            scenarioLabel(result),
+            templateLabel(result),
+            result.status,
+            result.reported,
+            "<div class=\"text-right\">" + scheduleActionButton(result) + "</div>",
             result.send_date
         ])
     })
-    scheduleTable.clear()
-    scheduleTable.rows.add(rows)
-    scheduleTable.draw()
+    table.clear()
+    table.rows.add(rows)
+    table.draw()
     renderScheduleSummary(campaign.results || [])
     $('[data-toggle="tooltip"]').tooltip()
 }
 
 function applyScheduleFilters() {
-    if (!scheduleTable) {
+    var table = $("#resultsTable").DataTable()
+    if (!table) {
         return
     }
     var recipientFilter = $("#schedule_filter_recipient").val()
     var scenarioFilter = $("#schedule_filter_scenario").val()
     var templateFilter = $("#schedule_filter_template").val()
-    scheduleTable.column(2).search(recipientFilter || "")
-    scheduleTable.column(3).search(scenarioFilter ? "^" + $.fn.dataTable.util.escapeRegex(scheduleMetadata.scenarios[scenarioFilter]) + "$" : "", true, false)
-    scheduleTable.column(4).search(templateFilter ? "^" + $.fn.dataTable.util.escapeRegex(scheduleMetadata.templates[templateFilter]) + "$" : "", true, false)
-    scheduleTable.draw()
+    table.column(resultColumns.email).search(recipientFilter || "")
+    table.column(resultColumns.scenario).search(scenarioFilter ? scheduleMetadata.scenarios[scenarioFilter] : "", false, false)
+    table.column(resultColumns.template).search(templateFilter ? scheduleMetadata.templates[templateFilter] : "", false, false)
+    table.draw()
 }
 
 function openScheduleEdit(rid) {
@@ -1016,12 +1121,18 @@ function poll() {
             resultsTable.rows().every(function (i, tableLoop, rowLoop) {
                 var row = this.row(i)
                 var rowData = row.data()
-                var rid = rowData[0]
+                var rid = rowData[resultColumns.id]
                 $.each(campaign.results, function (j, result) {
                     if (result.id == rid) {
-                        rowData[8] = moment(result.send_date).format('MMMM Do YYYY, h:mm:ss a')
-                        rowData[7] = result.reported
-                        rowData[6] = result.status
+                        var editable = isScheduleEditable(result)
+                        rowData[resultColumns.select] = editable ? "<input type=\"checkbox\" class=\"schedule-select\" data-rid=\"" + result.id + "\">" : ""
+                        rowData[resultColumns.sendDate] = moment(result.send_date).format('MMMM Do YYYY, h:mm:ss a')
+                        rowData[resultColumns.scenario] = scenarioLabel(result)
+                        rowData[resultColumns.template] = templateLabel(result)
+                        rowData[resultColumns.status] = result.status
+                        rowData[resultColumns.reported] = result.reported
+                        rowData[resultColumns.actions] = "<div class=\"text-right\">" + scheduleActionButton(result) + "</div>"
+                        rowData[resultColumns.rawSendDate] = result.send_date
                         resultsTable.row(i).data(rowData)
                         if (row.child.isShown()) {
                             $(row.node()).find("#caret").removeClass("fa-caret-right")
@@ -1075,6 +1186,7 @@ function load() {
                 campaign = c
                 if (campaign) {
                     buildScheduleMetadata(campaign)
+                    renderCampaignPlan(campaign)
                     $("title").text(c.name + " - Gophish")
                     $("#loading").hide()
                     $("#campaignResults").show()
@@ -1104,23 +1216,23 @@ function load() {
                     resultsTable = $("#resultsTable").DataTable({
                         destroy: true,
                         "order": [
-                            [2, "asc"]
+                            [resultColumns.sendDate, "asc"]
                         ],
                         columnDefs: [{
                                 orderable: false,
                                 targets: "no-sort"
                             }, {
                                 className: "details-control",
-                                "targets": [1]
+                                "targets": [resultColumns.details]
                             }, {
                                 "visible": false,
-                                "targets": [0, 8]
+                                "targets": [resultColumns.id, resultColumns.rawSendDate]
                             },
                             {
                                 "render": function (data, type, row) {
-                                    return createStatusLabel(data, row[8])
+                                    return createStatusLabel(data, row[resultColumns.sendDate])
                                 },
-                                "targets": [6]
+                                "targets": [resultColumns.status]
                             },
                             {
                                 className: "text-center",
@@ -1129,28 +1241,14 @@ function load() {
                                         if (reported) {
                                             return "<i class='fa fa-check-circle text-center text-success'></i>"
                                         }
-                                        return "<i role='button' class='fa fa-times-circle text-center text-muted' onclick='report_mail(\"" + row[0] + "\", \"" + campaign.id + "\");'></i>"
+                                        return "<i role='button' class='fa fa-times-circle text-center text-muted' onclick='report_mail(\"" + row[resultColumns.id] + "\", \"" + campaign.id + "\");'></i>"
                                     }
                                     return reported
                                 },
-                                "targets": [7]
+                                "targets": [resultColumns.reported]
                             }
                         ]
                     });
-                    scheduleTable = $("#scheduleTable").DataTable({
-                        destroy: true,
-                        "order": [
-                            [1, "asc"]
-                        ],
-                        columnDefs: [{
-                                orderable: false,
-                                targets: "no-sort"
-                            }, {
-                                "visible": false,
-                                "targets": [7, 8]
-                            }
-                        ]
-                    })
                     $("#schedule_filter_recipient").on("keyup change", applyScheduleFilters)
                     $("#schedule_filter_scenario").on("change", applyScheduleFilters)
                     $("#schedule_filter_template").on("change", applyScheduleFilters)
@@ -1164,16 +1262,22 @@ function load() {
                         email_series_data[k] = 0
                     });
                     $.each(campaign.results, function (i, result) {
+                        var editable = isScheduleEditable(result)
                         resultsTable.row.add([
+                            editable ? "<input type=\"checkbox\" class=\"schedule-select\" data-rid=\"" + result.id + "\">" : "",
                             result.id,
                             "<i id=\"caret\" class=\"fa fa-caret-right\"></i>",
+                            moment(result.send_date).format('MMMM Do YYYY, h:mm:ss a'),
                             escapeHtml(result.first_name) || "",
                             escapeHtml(result.last_name) || "",
                             escapeHtml(result.email) || "",
                             escapeHtml(result.position) || "",
+                            scenarioLabel(result),
+                            templateLabel(result),
                             result.status,
                             result.reported,
-                            moment(result.send_date).format('MMMM Do YYYY, h:mm:ss a')
+                            "<div class=\"text-right\">" + scheduleActionButton(result) + "</div>",
+                            result.send_date
                         ])
                         email_series_data[result.status]++;
                         if (result.reported) {
@@ -1341,6 +1445,13 @@ $(document).ready(function () {
 
     // Start the polling loop
     setRefresh = setTimeout(refresh, 60000)
+
+    $("#timelineModal").on("shown.bs.modal", function () {
+        var chart = $("#timeline_chart").highcharts()
+        if (chart) {
+            chart.reflow()
+        }
+    })
 
     // Setup multiple modals
     // Code based on http://miles-by-motorcycle.com/static/bootstrap-modal/index.html
