@@ -243,7 +243,7 @@ func (m *MailLog) Generate(msg *gomail.Message) error {
 
 	context := Context{From: c.getFromAddress(), URL: s.getBaseURL()}
 
-	ptx, err := NewPhishingTemplateContext(context, r.BaseRecipient, r.RId)
+	ptx, err := NewPhishingTemplateContext(context, r.BaseRecipient, r.RId, s.Variables)
 	if err != nil {
 		return err
 	}

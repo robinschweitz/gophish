@@ -88,6 +88,11 @@ var api = {
             return query("/scenarios/" + id, "DELETE", {}, false)
         }
     },
+    scenarioPreview: {
+        post: function (data) {
+            return query("/scenarios/preview", "POST", data, false)
+        }
+    },
     scenarioId: {
         // get() - Queries the API for GET /scenarios/:id
         get: function (id) {

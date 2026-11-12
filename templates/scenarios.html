@@ -36,7 +36,7 @@
 </div>
 <!-- Scenario Modal -->
 <div class="modal fade" id="modal" tabindex="-1" role="dialog" aria-labelledby="myModalLabel">
-    <div class="modal-dialog" role="document">
+    <div class="modal-dialog" role="document" style="width:94%; max-width:1320px;">
         <div class="modal-content">
             <div class="modal-header">
                 <button type="button" class="close" data-dismiss="modal" aria-label="Close" onclick="dismiss()">
@@ -44,31 +44,87 @@
                 </button>
                 <h4 class="modal-title" id="scenarioModalLabel">New Scenario</h4>
             </div>
-            <div class="modal-body" id="modal_body">
+            <div class="modal-body" id="modal_body" style="height:76vh; max-height:76vh; overflow:hidden;">
                 <div class="row" id="modal.flashes"></div>
-                <div class="form-group">
-                    <label for="name">Name:</label>
-                    <input type="text" class="form-control" id="name" placeholder="Scenario name" autofocus>
-                    <label for="name">Description:</label>
-                    <input type="text" class="form-control" id="description" placeholder="Scenario description" autofocus>
-                    <div class="row">
-                    <div class="col-sm-8">
-                    <label class="control-label" for="template">Email Templates:</label>
-                    <select class="form-control" placeholder="Template Name" id="template" multiple/>
-                    <option></option>
-                    </select>
-                    </div> </div>
-                    <div class="row">
-                    <div class="col-sm-8">
-                    <label class="control-label" for="page">Landing Page:</label>
-                    <select class="form-control" placeholder="Landing Page" id="page" />
-                    <option></option>
-                    </select>
-                    </div> </div>
-                    <label class="control-label" for="url">URL:
-                        <i class="fa fa-question-circle" data-toggle="tooltip" data-placement="right" title="Location of Gophish listener (must be reachable by targets!)"></i>
-                    </label>
-                    <input type="text" class="form-control" placeholder="http://192.168.1.1" id="url" />
+                <div class="btn-group" role="tablist" aria-label="Scenario sections" style="margin-bottom:18px;">
+                    <button type="button" class="btn btn-primary scenario-section-tab" data-tab="details" onclick="showScenarioTab('details')">Details</button>
+                    <button type="button" class="btn btn-default scenario-section-tab" data-tab="assets" onclick="showScenarioTab('assets')">Assets</button>
+                </div>
+                <div class="row" id="scenarioMainRow" style="display:flex; height:calc(100% - 52px);">
+                    <div class="col-md-5" id="scenarioSetupColumn" style="height:100%; overflow-y:auto; padding-bottom:20px;">
+                        <section id="scenarioDetailsTab">
+                            <h4>Scenario details</h4>
+                            <div class="form-group">
+                                <label for="name">Name</label>
+                                <input type="text" class="form-control" id="name" placeholder="Scenario name" autofocus>
+                            </div>
+                            <div class="form-group">
+                                <label for="description">Description</label>
+                                <input type="text" class="form-control" id="description" placeholder="Short description">
+                            </div>
+                            <div class="form-group">
+                                <label for="url">Campaign URL
+                                    <i class="fa fa-question-circle" data-toggle="tooltip" data-placement="right" title="Location of the Gophish listener. Use the local preview URL when testing."></i>
+                                </label>
+                                <input type="text" class="form-control" placeholder="http://192.168.1.1" id="url" />
+                            </div>
+                        </section>
+                        <section id="scenarioAssetsTab" style="display:none;">
+                            <h4>Email templates</h4>
+                            <p class="text-muted">Search and select the email templates used by this scenario.</p>
+                            <div class="form-group">
+                                <label class="control-label" for="template">Selected email templates</label>
+                                <select class="form-control" placeholder="Search email templates" id="template" multiple>
+                                    <option></option>
+                                </select>
+                            </div>
+                            <h4 style="margin-top:20px;">Landing page</h4>
+                            <div class="form-group">
+                                <label class="control-label" for="page">Selected landing page</label>
+                                <select class="form-control" placeholder="Search landing pages" id="page">
+                                    <option></option>
+                                </select>
+                            </div>
+                            <hr />
+                            <h4>Scenario variables</h4>
+                            <p class="text-muted">Values are discovered from the selected email templates and landing page.</p>
+                            <div class="row" id="scenarioVariableFields">
+                                <div class="col-sm-12"><p class="text-muted">Select assets above to see the values they use.</p></div>
+                            </div>
+                            <small>Values are available as <code>&#123;&#123;.Scenario.VariableName&#125;&#125;</code>. Recipient details such as FirstName and Email come from the campaign group.</small>
+                        </section>
+                    </div>
+                    <div class="col-md-7" id="scenarioLivePreviewColumn" style="height:100%; overflow-y:auto; padding-bottom:20px;">
+                        <div class="clearfix" style="margin-bottom:12px;">
+                            <h4 class="pull-left" style="margin-top:0;">Live preview</h4>
+                            <span class="text-muted pull-right" id="scenarioPreviewHint">Uses current scenario values</span>
+                        </div>
+                        <div class="btn-group" role="group" aria-label="Preview type" style="margin-bottom:10px;">
+                            <button type="button" class="btn btn-primary" id="scenarioEmailPreviewType" onclick="showScenarioPreviewType('email')">Email template</button>
+                            <button type="button" class="btn btn-default" id="scenarioPagePreviewType" onclick="showScenarioPreviewType('page')">Landing page</button>
+                        </div>
+                        <div id="scenarioPreviewEmpty" class="well text-center" style="min-height:260px; padding-top:85px;">
+                            <i class="fa fa-desktop fa-2x text-muted"></i>
+                            <p style="margin-top:10px;">Choose an email template or landing page to preview.</p>
+                            <small>This preview updates as you change scenario variable values.</small>
+                        </div>
+                        <div id="scenarioEmailPreviewPanel" style="display:none;">
+                            <div class="form-group">
+                                <label for="scenarioPreviewTemplate">Email template preview</label>
+                                <select class="form-control" id="scenarioPreviewTemplate"></select>
+                            </div>
+                            <div class="well well-sm"><strong>Subject:</strong> <span id="scenarioPreviewSubject"></span></div>
+                            <div class="btn-group" role="group" aria-label="Email preview format" style="margin-bottom:8px;">
+                                <button type="button" class="btn btn-primary" id="scenarioPreviewHtmlTab" onclick="showScenarioEmailFormat('html')">HTML</button>
+                                <button type="button" class="btn btn-default" id="scenarioPreviewTextTab" onclick="showScenarioEmailFormat('text')">Plain text</button>
+                            </div>
+                            <iframe id="scenarioEmailPreviewFrame" title="Email HTML preview" sandbox="" style="width:100%; height:calc(76vh - 250px); min-height:320px; border:1px solid #ddd; background:#fff;"></iframe>
+                            <pre id="scenarioEmailPreviewText" style="display:none; white-space:pre-wrap; max-height:calc(76vh - 250px); min-height:260px; overflow:auto;"></pre>
+                        </div>
+                        <div id="scenarioPagePreviewPanel" style="display:none;">
+                            <iframe id="scenarioPreviewFrame" title="Scenario landing page preview" sandbox="" style="width:100%; height:calc(76vh - 190px); min-height:360px; border:1px solid #ddd; background:#fff;"></iframe>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">

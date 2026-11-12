@@ -80,6 +80,7 @@ func (as *Server) registerRoutes() {
 	router.HandleFunc("/pages/", mid.Use(as.Pages, mid.EnforceTeamViewOnly("pages")))
 	router.HandleFunc("/pages/{id:[0-9]+}", mid.Use(as.Page, mid.EnforceTeamViewOnly("pages")))
 	router.HandleFunc("/scenarios/", mid.Use(as.Scenarios, mid.EnforceTeamViewOnly("scenarios")))
+	router.HandleFunc("/scenarios/preview", as.ScenarioPreview)
 	router.HandleFunc("/scenarios/{id:[0-9]+}", mid.Use(as.Scenario, mid.EnforceTeamViewOnly("scenarios")))
 	router.HandleFunc("/smtp/", mid.Use(as.SendingProfiles, mid.EnforceTeamViewOnly("smtp")))
 	router.HandleFunc("/smtp/{id:[0-9]+}", mid.Use(as.SendingProfile, mid.EnforceTeamViewOnly("smtp")))

@@ -2,11 +2,16 @@ package models
 
 import (
 	"bytes"
+	"fmt"
 	"net/mail"
 	"net/url"
 	"path"
+	"regexp"
+	"strings"
 	"text/template"
 )
+
+var scenarioVariableReferencePattern = regexp.MustCompile(`\.Scenario\.([A-Za-z_][A-Za-z0-9_]*)`)
 
 // TemplateContext is an interface that allows both campaigns and email
 // requests to have a PhishingTemplateContext generated for them.
@@ -25,11 +30,12 @@ type PhishingTemplateContext struct {
 	RId         string
 	BaseURL     string
 	BaseRecipient
+	Scenario map[string]string
 }
 
 // NewPhishingTemplateContext returns a populated PhishingTemplateContext,
 // parsing the correct fields from the provided TemplateContext and recipient.
-func NewPhishingTemplateContext(ctx TemplateContext, r BaseRecipient, rid string) (PhishingTemplateContext, error) {
+func NewPhishingTemplateContext(ctx TemplateContext, r BaseRecipient, rid string, scenario ...ScenarioVariables) (PhishingTemplateContext, error) {
 	f, err := mail.ParseAddress(ctx.getFromAddress())
 	if err != nil {
 		return PhishingTemplateContext{}, err
@@ -61,6 +67,10 @@ func NewPhishingTemplateContext(ctx TemplateContext, r BaseRecipient, rid string
 	trackingURL.Path = path.Join(trackingURL.Path, "/track")
 	trackingURL.RawQuery = q.Encode()
 
+	var variables map[string]string
+	if len(scenario) > 0 && scenario[0] != nil {
+		variables = scenario[0]
+	}
 	return PhishingTemplateContext{
 		BaseRecipient: r,
 		BaseURL:       baseURL.String(),
@@ -69,6 +79,7 @@ func NewPhishingTemplateContext(ctx TemplateContext, r BaseRecipient, rid string
 		Tracker:       "<img alt='' style='display: none' src='" + trackingURL.String() + "'/>",
 		From:          fn,
 		RId:           rid,
+		Scenario:      variables,
 	}, nil
 }
 
@@ -76,12 +87,89 @@ func NewPhishingTemplateContext(ctx TemplateContext, r BaseRecipient, rid string
 // template body and data.
 func ExecuteTemplate(text string, data interface{}) (string, error) {
 	buff := bytes.Buffer{}
-	tmpl, err := template.New("template").Parse(text)
+	tmpl, err := template.New("template").Funcs(template.FuncMap{
+		"upper":    strings.ToUpper,
+		"lower":    strings.ToLower,
+		"title":    strings.Title,
+		"trim":     strings.TrimSpace,
+		"urlquery": url.QueryEscape,
+		"default": func(fallback, value interface{}) interface{} {
+			if value == nil || fmt.Sprint(value) == "" {
+				return fallback
+			}
+			return value
+		},
+	}).Parse(text)
 	if err != nil {
 		return buff.String(), err
 	}
 	err = tmpl.Execute(&buff, data)
 	return buff.String(), err
+}
+
+// RenderScenarioPagePreview renders a landing page with the supplied scenario variables and sample recipient.
+func RenderScenarioPagePreview(page Page, baseURL string, variables ScenarioVariables) (string, error) {
+	variables = addScenarioPreviewPlaceholders(variables, page.HTML, page.RedirectURL)
+	ptx, err := newScenarioPreviewContext(baseURL, variables)
+	if err != nil {
+		return "", err
+	}
+	return ExecuteTemplate(page.HTML, ptx)
+}
+
+// ScenarioTemplatePreview contains rendered fields for an email template preview.
+type ScenarioTemplatePreview struct {
+	Subject string `json:"subject"`
+	Text    string `json:"text"`
+	HTML    string `json:"html"`
+}
+
+// RenderScenarioTemplatePreview renders the subject and bodies with sample recipient data.
+func RenderScenarioTemplatePreview(email Template, baseURL string, variables ScenarioVariables) (ScenarioTemplatePreview, error) {
+	variables = addScenarioPreviewPlaceholders(variables, email.Subject, email.Text, email.HTML)
+	ptx, err := newScenarioPreviewContext(baseURL, variables)
+	if err != nil {
+		return ScenarioTemplatePreview{}, err
+	}
+	preview := ScenarioTemplatePreview{}
+	preview.Subject, err = ExecuteTemplate(email.Subject, ptx)
+	if err != nil {
+		return ScenarioTemplatePreview{}, err
+	}
+	preview.Text, err = ExecuteTemplate(email.Text, ptx)
+	if err != nil {
+		return ScenarioTemplatePreview{}, err
+	}
+	preview.HTML, err = ExecuteTemplate(email.HTML, ptx)
+	if err != nil {
+		return ScenarioTemplatePreview{}, err
+	}
+	return preview, nil
+}
+
+func addScenarioPreviewPlaceholders(variables ScenarioVariables, contents ...string) ScenarioVariables {
+	previewVariables := ScenarioVariables{}
+	for name, value := range variables {
+		previewVariables[name] = value
+	}
+	for _, content := range contents {
+		for _, match := range scenarioVariableReferencePattern.FindAllStringSubmatch(content, -1) {
+			name := match[1]
+			if previewVariables[name] == "" {
+				previewVariables[name] = "{" + name + "}"
+			}
+		}
+	}
+	return previewVariables
+}
+
+func newScenarioPreviewContext(baseURL string, variables ScenarioVariables) (PhishingTemplateContext, error) {
+	if baseURL == "" {
+		baseURL = "http://localhost/"
+	}
+	ctx := Context{From: "Preview <preview@example.com>", URL: baseURL}
+	recipient := BaseRecipient{Email: "alex@example.com", FirstName: "Alex", LastName: "Example", Position: "Preview recipient"}
+	return NewPhishingTemplateContext(ctx, recipient, "scenario-preview", variables)
 }
 
 // ValidationContext is used for validating templates and pages

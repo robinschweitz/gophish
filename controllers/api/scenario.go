@@ -13,6 +13,55 @@ import (
 	"github.com/jinzhu/gorm"
 )
 
+type scenarioPreviewRequest struct {
+	Page       models.Page              `json:"page"`
+	TemplateId int64                    `json:"template_id"`
+	URL        string                   `json:"url"`
+	Variables  models.ScenarioVariables `json:"variables"`
+}
+
+// ScenarioPreview renders the selected scenario landing page without saving it.
+func (as *Server) ScenarioPreview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		JSONResponse(w, models.Response{Success: false, Message: "Method not allowed"}, http.StatusMethodNotAllowed)
+		return
+	}
+	request := scenarioPreviewRequest{}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		JSONResponse(w, models.Response{Success: false, Message: "Invalid request"}, http.StatusBadRequest)
+		return
+	}
+	if request.TemplateId != 0 {
+		template, err := models.GetTemplate(request.TemplateId, ctx.Get(r, "user_id").(int64))
+		if err != nil {
+			JSONResponse(w, models.Response{Success: false, Message: "Email template not found"}, http.StatusNotFound)
+			return
+		}
+		preview, err := models.RenderScenarioTemplatePreview(template, request.URL, request.Variables)
+		if err != nil {
+			JSONResponse(w, models.Response{Success: false, Message: err.Error()}, http.StatusBadRequest)
+			return
+		}
+		JSONResponse(w, preview, http.StatusOK)
+		return
+	}
+	if request.Page.Id == 0 {
+		JSONResponse(w, models.Response{Success: false, Message: "Select a landing page or email template to preview"}, http.StatusBadRequest)
+		return
+	}
+	page, err := models.GetPage(request.Page.Id, ctx.Get(r, "user_id").(int64))
+	if err != nil {
+		JSONResponse(w, models.Response{Success: false, Message: "Landing page not found"}, http.StatusNotFound)
+		return
+	}
+	html, err := models.RenderScenarioPagePreview(page, request.URL, request.Variables)
+	if err != nil {
+		JSONResponse(w, models.Response{Success: false, Message: err.Error()}, http.StatusBadRequest)
+		return
+	}
+	JSONResponse(w, map[string]string{"html": html}, http.StatusOK)
+}
+
 // Scenarios handles requests for the /api/scenarios/ endpoint
 func (as *Server) Scenarios(w http.ResponseWriter, r *http.Request) {
 	switch {

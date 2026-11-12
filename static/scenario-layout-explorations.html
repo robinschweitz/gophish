@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Scenario preview layout explorations</title>
+    <style>
+        :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; color: #243447; background: #f2f5f8; }
+        * { box-sizing: border-box; }
+        body { margin: 0; padding: 30px; }
+        .page { max-width: 1500px; margin: 0 auto; }
+        h1 { margin: 0 0 8px; font-size: 28px; }
+        .intro { margin: 0 0 24px; color: #64748b; }
+        .ideas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; }
+        .idea { background: white; border: 1px solid #dce3eb; border-radius: 10px; box-shadow: 0 3px 14px #1b35540b; overflow: hidden; }
+        .idea-head { padding: 17px 18px 13px; border-bottom: 1px solid #e6ebf0; }
+        .number { color: #428bca; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+        h2 { margin: 5px 0; font-size: 18px; }
+        .desc { margin: 0; font-size: 13px; color: #64748b; min-height: 36px; }
+        .mock { padding: 15px; background: #f8fafc; min-height: 435px; }
+        .window { border: 1px solid #d9e1e9; border-radius: 7px; background: white; overflow: hidden; box-shadow: 0 2px 7px #1b35540c; }
+        .window-bar { padding: 8px 10px; background: #f0f3f6; border-bottom: 1px solid #e2e8ee; font-size: 11px; color: #64748b; }
+        .split { display: grid; grid-template-columns: 42% 58%; min-height: 360px; }
+        .settings { padding: 11px; border-right: 1px solid #e5ebf0; }
+        .preview { padding: 11px; background: #f7f9fb; }
+        .field { margin-bottom: 10px; }
+        .field label { display: block; margin-bottom: 4px; font-size: 10px; font-weight: 700; color: #526274; }
+        .input { min-height: 25px; padding: 5px 7px; border: 1px solid #d6dfe8; border-radius: 4px; background: white; font-size: 10px; color: #334155; }
+        .input.multiline { min-height: 51px; font-family: ui-monospace, Consolas, monospace; line-height: 1.5; color: #456b8c; }
+        .choice { display: flex; gap: 5px; align-items: center; padding: 7px; margin-bottom: 6px; border: 1px solid #dfe6ed; border-radius: 4px; background: white; font-size: 10px; }
+        .choice.active { border-color: #5d9bd0; background: #f0f7fd; }
+        .check { color: #4387bc; font-weight: 700; }
+        .toolbar { display: flex; justify-content: space-between; gap: 4px; align-items: center; margin-bottom: 8px; padding-bottom: 7px; border-bottom: 1px solid #e3e9ef; font-size: 10px; color: #526274; }
+        .pills { display: flex; gap: 3px; }
+        .pill { padding: 4px 6px; border: 1px solid #d6dfe8; border-radius: 4px; background: white; font-size: 9px; color: #536476; }
+        .pill.active { color: white; border-color: #428bca; background: #428bca; }
+        .mail { min-height: 300px; padding: 13px; border: 1px solid #e1e6eb; border-radius: 4px; background: white; box-shadow: 0 1px 4px #1b355408; }
+        .subject { margin: 0 0 12px; padding-bottom: 9px; border-bottom: 1px solid #edf0f3; font-size: 11px; font-weight: 700; }
+        .mail p { margin: 8px 0; font-size: 10px; line-height: 1.55; }
+        .link { color: #2675b8; text-decoration: underline; }
+        .page-preview { min-height: 300px; padding: 21px 14px; border: 1px solid #e1e6eb; border-radius: 4px; background: white; }
+        .page-preview h3 { margin: 6px 0 11px; font-size: 17px; color: #245a8d; }
+        .page-preview p { font-size: 10px; line-height: 1.6; }
+        .tag { display: inline-block; margin: 0 0 6px; padding: 3px 6px; border-radius: 9px; color: #52738c; background: #edf5fb; font-size: 9px; }
+        .below { padding: 11px; }
+        .wide-mail { max-width: 470px; min-height: 240px; margin: 12px auto; padding: 18px; border: 1px solid #e1e6eb; border-radius: 5px; background: white; }
+        .steps { display: flex; gap: 5px; margin-bottom: 12px; }
+        .step { flex: 1; padding: 7px 5px; border-radius: 4px; background: #eff3f6; color: #607184; text-align: center; font-size: 9px; }
+        .step.active { background: #e6f2fb; color: #246a9f; font-weight: 700; }
+        .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+        .asset { padding: 9px; border: 1px solid #dfe6ed; border-radius: 5px; background: white; font-size: 10px; }
+        .asset.active { border-color: #5d9bd0; box-shadow: inset 0 0 0 1px #5d9bd0; }
+        .asset strong { display: block; margin-bottom: 4px; }
+        .focus-preview { padding: 10px; border: 1px solid #dfe6ed; border-radius: 5px; background: white; }
+        .hybrid-top { padding: 11px; border-bottom: 1px solid #e5ebf0; background: #fbfcfd; }
+        .hybrid-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+        .hybrid-workspace { display: grid; grid-template-columns: 38% 62%; min-height: 300px; }
+        .hybrid-assets { padding: 10px; border-right: 1px solid #e5ebf0; background: #fafbfd; }
+        .search { display: flex; gap: 5px; align-items: center; margin: 7px 0; padding: 7px; border: 1px solid #d6dfe8; border-radius: 4px; background: white; color: #8a98a8; font-size: 10px; }
+        .selected-chip { display: inline-block; margin: 2px 2px 2px 0; padding: 5px 7px; border: 1px solid #d9e5ef; border-radius: 12px; background: #f0f7fd; color: #365d7b; font-size: 9px; }
+        .selected-chip .x { margin-left: 4px; color: #8092a2; }
+        .small-note { margin: 7px 0; color: #718194; font-size: 9px; line-height: 1.4; }
+        .detected { margin-top: 10px; padding: 8px; border-radius: 4px; background: #eef6fb; color: #47677f; font-size: 9px; }
+        .hybrid-canvas { padding: 10px; background: #f7f9fb; }
+        .hybrid-canvas .mail { min-height: 245px; }
+        .idea-foot { padding: 14px 18px 16px; }
+        .idea-foot strong { font-size: 12px; }
+        .idea-foot p { margin: 5px 0 0; font-size: 12px; line-height: 1.45; color: #64748b; }
+        .recommend { margin: 20px 0 0; padding: 14px 17px; border-left: 4px solid #428bca; border-radius: 4px; background: #eaf4fc; color: #38556d; font-size: 13px; }
+        @media (max-width: 1050px) { .ideas { grid-template-columns: 1fr; } .mock { min-height: 0; } .window { max-width: 760px; margin: auto; } }
+        @media (max-width: 620px) { body { padding: 16px; } .split, .hybrid-workspace { grid-template-columns: 1fr; } .settings, .hybrid-assets { border-right: 0; border-bottom: 1px solid #e5ebf0; } .hybrid-fields { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+<main class="page">
+    <h1>Scenario preview layout ideas</h1>
+    <p class="intro">Four visual directions for reviewing the email and landing page together with scenario-specific values. The current editor follows the top-to-bottom setup with automatically generated variable fields; these mockups are here for comparison.</p>
+    <section class="ideas">
+        <article class="idea">
+            <header class="idea-head"><span class="number">Idea 1</span><h2>Settings left, preview right</h2><p class="desc">Keep scenario settings visible while the preview stays in view.</p></header>
+            <div class="mock"><div class="window"><div class="window-bar">Scenario editor · Contoso demo</div><div class="split">
+                <div class="settings">
+                    <div class="field"><label>SCENARIO NAME</label><div class="input">Contoso quarterly update</div></div>
+                    <div class="field"><label>AUTO-FILLED VALUES</label><div class="input">CompanyName<br><b>Contoso</b></div></div>
+                    <div class="field"><div class="input">ReminderTitle<br><b>Quarterly update</b></div></div>
+                    <div class="field"><label>EMAIL TEMPLATES</label><div class="choice active"><span class="check">✓</span> Welcome note</div><div class="choice active"><span class="check">✓</span> Reminder</div></div>
+                    <div class="field"><label>LANDING PAGE</label><div class="choice active"><span class="check">✓</span> Scenario demo page</div></div>
+                    <div class="field"><label>CAMPAIGN URL</label><div class="input">http://127.0.0.1:8080</div></div>
+                </div>
+                <div class="preview"><div class="toolbar"><span>PREVIEW</span><div class="pills"><span class="pill active">Email</span><span class="pill">Page</span></div></div><div class="pills" style="margin-bottom:8px;"><span class="pill active">Welcome note</span><span class="pill">Reminder</span></div><div class="mail"><div class="subject">A quick note from Contoso</div><p>Hi Alex,</p><p>This is a test message for <b>Contoso</b>. A reminder customized for this scenario.</p><p class="link">Review the scenario preview</p><p>Regards,<br>Preview Sender</p></div></div>
+            </div></div></div>
+            <footer class="idea-foot"><strong>Best for:</strong><p>Editing variables while quickly checking their effect. Preview gets less room on narrow screens.</p></footer>
+        </article>
+        <article class="idea">
+            <header class="idea-head"><span class="number">Idea 2</span><h2>Setup first, preview below</h2><p class="desc">A simple top-to-bottom flow with a wide preview canvas.</p></header>
+            <div class="mock"><div class="window"><div class="window-bar">Scenario editor · Contoso demo</div><div class="below">
+                <div class="steps"><div class="step active">1 · Details</div><div class="step active">2 · Content</div><div class="step active">3 · Preview</div></div>
+                <div class="cards"><div class="asset"><strong>CompanyName</strong>Contoso</div><div class="asset"><strong>ReminderTitle</strong>Quarterly update</div></div>
+                <div class="cards"><div class="asset active"><strong>Email templates</strong>Welcome note, Reminder</div><div class="asset active"><strong>Landing page</strong>Scenario demo page</div></div>
+                <div class="toolbar"><span>RENDERED EMAIL · WELCOME NOTE</span><div class="pills"><span class="pill active">HTML</span><span class="pill">Text</span><span class="pill">Page</span></div></div>
+                <div class="wide-mail"><div class="subject">A quick note from Contoso</div><p>Hi Alex,</p><p>This message is rendered with the scenario’s current <b>CompanyName</b> and <b>Message</b> values.</p><p class="link">Review the scenario preview</p><p>Regards,<br>Preview Sender</p></div>
+            </div></div></div>
+            <footer class="idea-foot"><strong>Best for:</strong><p>A calm, linear workflow and a full-width reading preview. Comparing settings requires scrolling.</p></footer>
+        </article>
+        <article class="idea">
+            <header class="idea-head"><span class="number">Idea 3</span><h2>Choose an asset, then inspect</h2><p class="desc">Treat email templates and the landing page as a connected scenario kit.</p></header>
+            <div class="mock"><div class="window"><div class="window-bar">Scenario editor · Contoso demo</div><div class="below">
+                <div class="field"><label>SCENARIO VALUES</label><div class="input">Contoso · Quarterly update · Preview message</div></div>
+                <div class="cards"><div class="asset active"><strong>✉ Welcome note</strong>Email · HTML + text</div><div class="asset"><strong>✉ Reminder</strong>Email · HTML + text</div><div class="asset"><strong>▣ Demo landing page</strong>Landing page · HTML</div><div class="asset"><strong>↗ Campaign URL</strong>127.0.0.1:8080</div></div>
+                <div class="focus-preview"><div class="toolbar"><span>WELCOME NOTE</span><div class="pills"><span class="pill active">Rendered</span><span class="pill">Source</span></div></div><div class="subject">A quick note from Contoso</div><p>Hi Alex, this is a preview of the selected asset with scenario values applied.</p><p class="link">Review the scenario preview</p></div>
+            </div></div></div>
+            <footer class="idea-foot"><strong>Best for:</strong><p>Scenarios with several assets. Selection is clear, while switching items replaces the large preview.</p></footer>
+        </article>
+        <article class="idea">
+            <header class="idea-head"><span class="number">Idea 4 · Guided blend</span><h2>Details → Assets → Variables, with preview beside</h2><p class="desc">A clear setup sequence, searchable asset selection, and a persistent live preview.</p></header>
+            <div class="mock"><div class="window"><div class="window-bar">Scenario editor · Contoso demo</div>
+                <div class="hybrid-top">
+                    <div class="steps"><div class="step">✓ 1 · Details</div><div class="step active">2 · Assets</div><div class="step">3 · Variables</div></div>
+                    <div class="hybrid-summary"><div class="field"><label>SCENARIO</label><div class="input">Contoso quarterly update</div></div><div class="field"><label>CAMPAIGN URL</label><div class="input">http://127.0.0.1:8080</div></div></div>
+                </div>
+                <div class="hybrid-workspace">
+                    <div class="hybrid-assets">
+                        <div class="toolbar"><span>EMAIL TEMPLATES</span><span>2 selected</span></div>
+                        <div class="search"><span>⌕</span> Search templates…</div>
+                        <span class="selected-chip">Welcome note <span class="x">×</span></span>
+                        <span class="selected-chip">Reminder <span class="x">×</span></span>
+                        <p class="small-note">Search the library to add assets. Only selected items stay in this list.</p>
+                        <div class="toolbar" style="margin-top:13px;"><span>LANDING PAGE</span></div>
+                        <div class="search">⌕ &nbsp; Search landing pages…</div>
+                        <span class="selected-chip">Scenario demo page <span class="x">×</span></span>
+                        <div class="detected">Next step: 4 scenario values found in these assets.</div>
+                    </div>
+                    <div class="hybrid-canvas">
+                        <div class="toolbar"><span>LIVE PREVIEW</span><div class="pills"><span class="pill active">Welcome note</span><span class="pill">Reminder</span><span class="pill">Page</span></div></div>
+                        <div class="pills" style="margin-bottom:8px;"><span class="pill active">HTML</span><span class="pill">Plain text</span></div>
+                        <div class="mail"><div class="subject">A quick note from Contoso</div><p>Hi Alex,</p><p>This is a test message for <b>Contoso</b>. Scenario-specific values appear here as you edit them.</p><p class="link">Review the scenario preview</p><p>Regards,<br>Preview Sender</p></div>
+                    </div>
+                </div>
+            </div></div>
+            <footer class="idea-foot"><strong>Best for:</strong><p>Keeping setup approachable while preserving context. Searchable pickers avoid a long asset list; the preview stays visible during selection.</p></footer>
+        </article>
+    </section>
+    <p class="recommend"><strong>Blend to consider:</strong> Idea 4 uses a three-step flow and searchable asset pickers, with the preview pinned beside the current step. Selected assets—not the whole library—remain visible.</p>
+</main>
+</body>
+</html>

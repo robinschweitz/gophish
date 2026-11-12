@@ -1,6 +1,8 @@
 package models
 
 import (
+	"database/sql/driver"
+	"encoding/json"
 	"errors"
 	"regexp"
 	"time"
@@ -10,20 +12,49 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// ScenarioVariables are named values available to reusable templates as .Scenario.Name.
+type ScenarioVariables map[string]string
+
+func (v ScenarioVariables) Value() (driver.Value, error) {
+	if v == nil {
+		return "{}", nil
+	}
+	encoded, err := json.Marshal(v)
+	return string(encoded), err
+}
+
+func (v *ScenarioVariables) Scan(value interface{}) error {
+	if value == nil {
+		*v = ScenarioVariables{}
+		return nil
+	}
+	var data []byte
+	switch value := value.(type) {
+	case []byte:
+		data = value
+	case string:
+		data = []byte(value)
+	default:
+		return errors.New("invalid scenario variables")
+	}
+	return json.Unmarshal(data, v)
+}
+
 // Scenario is a struct representing a scenario
 type Scenario struct {
-	Id           int64         `json:"id"`
-	UserId       int64         `json:"user_id"`
-	Name         string        `json:"name" sql:"not null"`
-	Description  string        `json:"description`
-	CreatedDate  time.Time     `json:"created_date"`
-	ModifiedDate time.Time     `json:"modified_date"`
-	Templates    []Template    `json:"templates" gorm:"many2many:scenario_templates;"`
-	PageId       int64         `json:"-"`
-	Page         Page          `json:"page"`
-	URL          string        `json:"url"`
-	Item         Item          `json:"-" gorm:"ForeignKey:item_type_id"`
-	Teams        []TeamSummary `json:"teams" gorm:"-"`
+	Id           int64             `json:"id"`
+	UserId       int64             `json:"user_id"`
+	Name         string            `json:"name" sql:"not null"`
+	Description  string            `json:"description`
+	Variables    ScenarioVariables `json:"variables" gorm:"type:text"`
+	CreatedDate  time.Time         `json:"created_date"`
+	ModifiedDate time.Time         `json:"modified_date"`
+	Templates    []Template        `json:"templates" gorm:"many2many:scenario_templates;"`
+	PageId       int64             `json:"-"`
+	Page         Page              `json:"page"`
+	URL          string            `json:"url"`
+	Item         Item              `json:"-" gorm:"ForeignKey:item_type_id"`
+	Teams        []TeamSummary     `json:"teams" gorm:"-"`
 }
 
 type CampaignScenarios struct {
@@ -65,6 +96,12 @@ func (s *Scenario) Validate() error {
 		return ErrURLNotSpecified
 	case temp == false:
 		return ErrURLNotValid
+	}
+	for key := range s.Variables {
+		valid, _ := regexp.MatchString(`^[A-Za-z_][A-Za-z0-9_]*$`, key)
+		if !valid {
+			return errors.New("Scenario variable names must be valid identifiers")
+		}
 	}
 	return nil
 }

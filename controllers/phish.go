@@ -266,7 +266,7 @@ func (ps *PhishingServer) PhishHandler(w http.ResponseWriter, r *http.Request) {
 			log.Error(err)
 		}
 	}
-	ptx, err = models.NewPhishingTemplateContext(&cs, rs.BaseRecipient, rs.RId)
+	ptx, err = models.NewPhishingTemplateContext(&cs, rs.BaseRecipient, rs.RId, s.Variables)
 	if err != nil {
 		log.Error(err)
 		http.NotFound(w, r)
