@@ -38,7 +38,13 @@ vendorjs = function () {
             vendor_directory + 'select2.min.js',
             vendor_directory + 'core.min.js',
             vendor_directory + 'highcharts.js',
-            vendor_directory + 'ua-parser.min.js'
+            vendor_directory + 'ua-parser.min.js',
+            'node_modules/ace-builds/src-min-noconflict/ace.js',
+            'node_modules/ace-builds/src-min-noconflict/mode-html.js',
+            'node_modules/ace-builds/src-min-noconflict/mode-css.js',
+            'node_modules/ace-builds/src-min-noconflict/theme-chrome.js',
+            'node_modules/ace-builds/src-min-noconflict/ext-language_tools.js',
+            'node_modules/ace-builds/src-min-noconflict/snippets/html.js'
         ])
         .pipe(concat('vendor.js'))
         .pipe(rename({

@@ -35,7 +35,7 @@
 </div>
 <!-- Modal -->
 <div class="modal fade" id="modal" tabindex="-1" role="dialog" aria-labelledby="modalLabel">
-    <div class="modal-dialog" role="document">
+    <div class="modal-dialog" role="document" style="width:94%; max-width:1320px;">
         <div class="modal-content">
             <!-- New Template Modal -->
             <div class="modal-header">
@@ -43,7 +43,7 @@
                         aria-hidden="true">&times;</span></button>
                 <h4 class="modal-title" id="templateModalLabel">New Template</h4>
             </div>
-            <div class="modal-body">
+            <div class="modal-body" style="max-height:76vh; overflow-y:auto;">
                 <div class="row" id="modal.flashes"></div>
                 <label class="control-label" for="name">Name:</label>
                 <div class="form-group">
@@ -74,7 +74,30 @@
                         <textarea rows="10" id="text_editor" class="gophish-editor form-control" placeholder="Plaintext"></textarea>
                     </div>
                     <div role="tabpanel" class="tab-pane" id="html">
-                        <textarea id="html_editor"></textarea>
+                        <div class="btn-group html-editor-mode" role="group" aria-label="HTML editing mode" style="margin:8px 0;">
+                            <button type="button" class="btn btn-primary" id="templateVisualMode" onclick="setTemplateHtmlMode('visual')">Visual</button>
+                            <button type="button" class="btn btn-default" id="templateSourceMode" onclick="setTemplateHtmlMode('source')"><i class="fa fa-code"></i> HTML source</button>
+                        </div>
+                        <div id="templateVisualEditorContainer">
+                            <textarea id="html_editor"></textarea>
+                        </div>
+                        <div id="templateSourceEditorContainer" style="display:none;">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <label for="html_source_editor">HTML source <small class="text-muted">· HTML completion and Gophish tags · Ctrl-Space</small></label>
+                                    <div class="gophish-source-editor" style="height:calc(76vh - 300px); min-height:420px;">
+                                        <div id="html_source_editor" aria-label="HTML source editor"></div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="clearfix"><label class="pull-left">Live email preview</label><span class="text-muted pull-right" id="templatePreviewHint">Preview values are sample data</span></div>
+                                    <div class="well well-sm"><strong>Subject:</strong> <span id="templatePreviewSubject"></span></div>
+                                    <div class="gophish-source-preview" style="height:calc(76vh - 340px); min-height:420px;">
+                                        <iframe id="templateSourcePreview" title="Email source preview" sandbox="" style="width:100%; height:100%; border:1px solid #ddd; background:#fff;"></iframe>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div class="checkbox checkbox-primary">
@@ -182,9 +205,9 @@
 </div> 
 {{end}}
 {{define "scripts"}}
-<script src="/js/src/vendor/ckeditor/ckeditor.js"></script>
+<script src="/js/src/vendor/ckeditor/ckeditor.js?v=html-editor-1"></script>
 <script src="/js/src/vendor/ckeditor/adapters/jquery.js"></script>
-<script src="/js/dist/app/autocomplete.min.js"></script>
-<script src="/js/dist/app/templates.min.js"></script>
+<script src="/js/dist/app/autocomplete.min.js?v=html-editor-1"></script>
+<script src="/js/dist/app/templates.min.js?v=html-editor-1"></script>
 <script src="/js/dist/app/utils.min.js"></script>
 {{end}}

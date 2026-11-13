@@ -75,6 +75,7 @@ func (as *Server) registerRoutes() {
 	router.HandleFunc("/groups/summary", mid.Use(as.GroupsSummary, mid.EnforceTeamViewOnly("groups")))
 	router.HandleFunc("/groups/{id:[0-9]+}", mid.Use(as.Group, mid.EnforceTeamViewOnly("groups")))
 	router.HandleFunc("/groups/{id:[0-9]+}/summary", mid.Use(as.GroupSummary, mid.EnforceTeamViewOnly("groups")))
+	router.HandleFunc("/templates/preview", as.TemplatePreview)
 	router.HandleFunc("/templates/", mid.Use(as.Templates, mid.EnforceTeamViewOnly("templates")))
 	router.HandleFunc("/templates/{id:[0-9]+}", mid.Use(as.Template, mid.EnforceTeamViewOnly("templates")))
 	router.HandleFunc("/pages/", mid.Use(as.Pages, mid.EnforceTeamViewOnly("pages")))

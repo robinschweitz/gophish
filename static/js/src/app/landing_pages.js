@@ -6,13 +6,123 @@
 var pages = []
 var teams = []
 var item_type = "pages"
+var pageHtmlMode = "visual"
+var pagePreviewTimer = null
+var pagePreviewRequest = 0
+var pagePendingHtml = ""
+var pageVisualReady = false
+var pageReadOnly = false
+
+function getPageHtmlContent() {
+    var sourceEditor = getHTMLSourceEditor("page_html_source_editor")
+    if (pageHtmlMode === "source" && sourceEditor) return sourceEditor.getValue()
+    var visualEditor = CKEDITOR.instances["html_editor"]
+    if (visualEditor && pageVisualReady) return visualEditor.getData()
+    return pagePendingHtml || ""
+}
+
+function setPageHtmlContent(html) {
+    html = html || ""
+    pagePendingHtml = html
+    pageVisualReady = false
+    var visualEditor = CKEDITOR.instances["html_editor"]
+    if (visualEditor) {
+        if ($("#modal").is(":visible")) visualEditor.setData(html, function () { pageVisualReady = true })
+    } else {
+        $("#html_editor").val(html)
+    }
+    var sourceEditor = getHTMLSourceEditor("page_html_source_editor")
+    if (sourceEditor) sourceEditor.setValue(html)
+}
+
+function ensurePageVisualEditor() {
+	var editor = CKEDITOR.instances["html_editor"]
+	if (!editor) {
+		$("#html_editor").ckeditor({ height: getGophishVisualEditorHeight() })
+		editor = CKEDITOR.instances["html_editor"]
+		if (editor) setupAutocomplete(editor)
+	}
+	if (!editor) return
+
+	editor.config.readOnly = pageReadOnly
+	resizeGophishVisualEditor(editor)
+	pageVisualReady = false
+	editor.setData(pagePendingHtml, function () {
+		if (editor.mode !== "wysiwyg") {
+			editor.setMode("wysiwyg", function () {
+				resizeGophishVisualEditor(editor)
+				pageVisualReady = true
+			})
+		} else {
+			resizeGophishVisualEditor(editor)
+			pageVisualReady = true
+		}
+	})
+}
+
+function setPageHtmlMode(mode) {
+    var sourceMode = mode === "source"
+    var html = getPageHtmlContent() || ""
+    pageHtmlMode = sourceMode ? "source" : "visual"
+    $("#pageVisualMode").toggleClass("btn-primary", !sourceMode).toggleClass("btn-default", sourceMode)
+    $("#pageSourceMode").toggleClass("btn-primary", sourceMode).toggleClass("btn-default", !sourceMode)
+    $("#pageVisualEditorContainer").toggle(!sourceMode)
+    $("#pageSourceEditorContainer").toggle(sourceMode)
+
+    var visualEditor = CKEDITOR.instances["html_editor"]
+    if (sourceMode) {
+        var codeEditor = setupHTMLSourceEditor("page_html_source_editor", queuePageSourcePreview)
+        if (codeEditor) {
+            setHTMLSourceValue("page_html_source_editor", html)
+        }
+        queuePageSourcePreview()
+    } else {
+        clearTimeout(pagePreviewTimer)
+        pagePreviewRequest++
+        pagePendingHtml = html
+        if ($("#modal").is(":visible")) {
+            if (visualEditor) {
+                visualEditor.setData(html, function () {
+                    if (visualEditor.mode !== "wysiwyg") visualEditor.setMode("wysiwyg", function () { resizeGophishVisualEditor(visualEditor) })
+                    else resizeGophishVisualEditor(visualEditor)
+                    pageVisualReady = true
+                })
+            } else {
+                ensurePageVisualEditor()
+            }
+        }
+    }
+}
+
+function queuePageSourcePreview() {
+    if (pageHtmlMode !== "source") return
+    clearTimeout(pagePreviewTimer)
+    pagePreviewTimer = setTimeout(renderPageSourcePreview, 300)
+}
+
+function renderPageSourcePreview() {
+    if (pageHtmlMode !== "source") return
+    var request = ++pagePreviewRequest
+    api.scenarioPreview.post({
+        page: { html: getPageHtmlContent() },
+        url: "http://preview.local/",
+        variables: {}
+    }).success(function (preview) {
+        if (request !== pagePreviewRequest) return
+        document.getElementById("pageSourcePreview").srcdoc = preview.html
+        $("#pagePreviewHint").text("Rendered with sample recipient data")
+    }).error(function (data) {
+        if (request !== pagePreviewRequest) return
+        $("#pagePreviewHint").text(data.responseJSON && data.responseJSON.message ? data.responseJSON.message : "Unable to render preview")
+    })
+}
 
 // Save attempts to POST to /templates/
 function save(idx) {
     var page = {}
     page.name = $("#name").val()
     editor = CKEDITOR.instances["html_editor"]
-    page.html = editor.getData()
+    page.html = getPageHtmlContent()
     page.capture_credentials = $("#capture_credentials_checkbox").prop("checked")
     page.capture_passwords = $("#capture_passwords_checkbox").prop("checked")
     page.redirect_url = $("#redirect_url_input").val()
@@ -40,9 +150,13 @@ function save(idx) {
 }
 
 function dismiss() {
+    clearTimeout(pagePreviewTimer)
+    pagePreviewRequest++
     $("#modal\\.flashes").empty()
     $("#name").val("")
-    $("#html_editor").val("")
+    setPageHtmlContent("")
+    setPageHtmlMode("visual")
+    document.getElementById("pageSourcePreview").srcdoc = ""
     $("#url").val("")
     $("#redirect_url_input").val("")
     $("#modal").find("input[type='checkbox']").prop("checked", false)
@@ -102,8 +216,8 @@ function importSite() {
                 include_resources: false
             })
             .success(function (data) {
-                $("#html_editor").val(data.html)
-                CKEDITOR.instances["html_editor"].setMode('wysiwyg')
+                setPageHtmlContent(data.html)
+                setPageHtmlMode("visual")
                 $("#importSiteModal").modal("hide")
             })
             .error(function (data) {
@@ -113,17 +227,17 @@ function importSite() {
 }
 
 function edit(idx) {
+    pageReadOnly = false
     $("#modalSubmit").unbind('click').click(function () {
         save(idx)
     })
-    $("#html_editor").ckeditor()
-    setupAutocomplete(CKEDITOR.instances["html_editor"])
     var page = {}
     if (idx != -1) {
         $("#modalLabel").text("Edit Landing Page")
         page = pages[idx]
         $("#name").val(page.name)
-        $("#html_editor").val(page.html)
+        setPageHtmlContent(page.html)
+        setPageHtmlMode("visual")
         $("#capture_credentials_checkbox").prop("checked", page.capture_credentials)
         $("#capture_passwords_checkbox").prop("checked", page.capture_passwords)
         $("#redirect_url_input").val(page.redirect_url)
@@ -133,29 +247,33 @@ function edit(idx) {
         }
     } else {
         $("#modalLabel").text("New Landing Page")
+        setPageHtmlContent("")
+        setPageHtmlMode("visual")
     }
     // make editable
     $("#capture_credentials_checkbox").attr("disabled", false)
     $("#capture_passwords_checkbox").attr("disabled", false)
     $("#name").attr('readonly', false)
     $("#redirect_url_input").attr('readonly', false)
-    CKEDITOR.instances["html_editor"].config.readOnly = false
+    $("#pageVisualMode, #pageSourceMode").prop("disabled", false)
+    var sourceEditor = getHTMLSourceEditor("page_html_source_editor")
+    if (sourceEditor) sourceEditor.setOption("readOnly", false)
     $("#modalSubmit").show()
     $("#modalImport").show()
 }
 
 function view(idx) {
+    pageReadOnly = true
     $("#modalSubmit").unbind('click').click(function () {
         save(idx)
     })
-    $("#html_editor").ckeditor()
-    setupAutocomplete(CKEDITOR.instances["html_editor"])
     var page = {}
 
     $("#modalLabel").text("View Landing Page")
     page = pages[idx]
     $("#name").val(page.name)
-    $("#html_editor").val(page.html)
+    setPageHtmlContent(page.html)
+    setPageHtmlMode("visual")
     $("#capture_credentials_checkbox").prop("checked", page.capture_credentials)
     $("#capture_passwords_checkbox").prop("checked", page.capture_passwords)
     $("#redirect_url_input").val(page.redirect_url)
@@ -170,18 +288,24 @@ function view(idx) {
     $("#capture_passwords_checkbox").attr("disabled", true)
     $("#name").attr('readonly', true)
     $("#redirect_url_input").attr('readonly', true)
-    CKEDITOR.instances["html_editor"].config.readOnly = true
+    $("#pageVisualMode, #pageSourceMode").prop("disabled", true)
+    var sourceEditor = getHTMLSourceEditor("page_html_source_editor")
+    if (sourceEditor) sourceEditor.setOption("readOnly", true)
     
 }
 
 function copy(idx) {
+    pageReadOnly = false
     $("#modalSubmit").unbind('click').click(function () {
         save(-1)
     })
-    $("#html_editor").ckeditor()
     var page = pages[idx]
     $("#name").val("Copy of " + page.name)
-    $("#html_editor").val(page.html)
+    setPageHtmlContent(page.html)
+    setPageHtmlMode("visual")
+    $("#pageVisualMode, #pageSourceMode").prop("disabled", false)
+    var sourceEditor = getHTMLSourceEditor("page_html_source_editor")
+    if (sourceEditor) sourceEditor.setOption("readOnly", false)
 }
 
 function load() {
@@ -264,6 +388,10 @@ function load() {
 }
 
 $(document).ready(function () {
+    $(window).on("resize", function () {
+        if ($("#modal").is(":visible") && pageHtmlMode === "visual") resizeGophishVisualEditor(CKEDITOR.instances["html_editor"])
+    })
+    $("#redirect_url_input").on("input", queuePageSourcePreview)
     // Setup multiple modals
     // Code based on http://miles-by-motorcycle.com/static/bootstrap-modal/index.html
     $('.modal').on('hidden.bs.modal', function (event) {
@@ -271,6 +399,9 @@ $(document).ready(function () {
         $('body').data('fv_open_modals', $('body').data('fv_open_modals') - 1);
     });
     $('.modal').on('shown.bs.modal', function (event) {
+        if ($(this).attr("id") === "modal" && pageHtmlMode === "visual") {
+            ensurePageVisualEditor()
+        }
         // Keep track of the number of open modals
         if (typeof ($('body').data('fv_open_modals')) == 'undefined') {
             $('body').data('fv_open_modals', 0);

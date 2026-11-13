@@ -8,57 +8,37 @@ CKEDITOR.editorConfig = function (config) {
 	// For complete reference see:
 	// http://docs.ckeditor.com/#!/api/CKEDITOR.config
 
-	// The toolbar groups arrangement, optimized for two toolbar rows.
-	config.toolbarGroups = [{
+	// Keep the visual editing toolbar focused on common content formatting.
+	// HTML source editing is handled by the adjacent Ace source mode.
+	config.toolbar = [{
 			name: 'clipboard',
-			groups: ['clipboard', 'undo']
+			items: ['Undo', 'Redo']
 		},
 		{
-			name: 'editing',
-			groups: ['find', 'selection', 'spellchecker']
+			name: 'styles',
+			items: ['Format']
 		},
-		{
-			name: 'links'
-		},
-		{
-			name: 'insert'
-		},
-		{
-			name: 'forms'
-		},
-		{
-			name: 'tools'
-		},
-		{
-			name: 'document',
-			groups: ['mode', 'document', 'doctools']
-		},
-		{
-			name: 'others'
-		},
-		'/',
 		{
 			name: 'basicstyles',
-			groups: ['basicstyles', 'cleanup']
+			items: ['Bold', 'Italic', 'Underline', 'Strike', 'RemoveFormat']
 		},
 		{
 			name: 'paragraph',
-			groups: ['list', 'indent', 'blocks', 'align', 'bidi']
+			items: ['NumberedList', 'BulletedList', 'Outdent', 'Indent', 'JustifyLeft', 'JustifyCenter', 'JustifyRight']
 		},
 		{
-			name: 'styles'
+			name: 'links',
+			items: ['Link', 'Unlink']
 		},
 		{
-			name: 'colors'
+			name: 'insert',
+			items: ['Image', 'Table', 'HorizontalRule']
 		},
 		{
-			name: 'about'
+			name: 'tools',
+			items: ['Maximize']
 		}
 	];
-
-	// Remove some buttons provided by the standard plugins, which are
-	// not needed in the Standard(s) toolbar.
-	config.removeButtons = 'Underline,Subscript,Superscript';
 
 	// Set the most common block elements.
 	config.format_tags = 'p;h1;h2;h3;pre';
@@ -67,6 +47,6 @@ CKEDITOR.editorConfig = function (config) {
 	config.removeDialogTabs = 'image:advanced;link:advanced;link:target';
 	config.fullPage = true;
 	config.allowedContent = true;
-	config.startupMode = "source";
+	config.startupMode = "wysiwyg";
 	config.startupShowBorders = false;
 };

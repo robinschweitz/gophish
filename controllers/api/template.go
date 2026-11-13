@@ -13,6 +13,31 @@ import (
 	"github.com/jinzhu/gorm"
 )
 
+type templatePreviewRequest struct {
+	Template  models.Template          `json:"template"`
+	URL       string                   `json:"url"`
+	Variables models.ScenarioVariables `json:"variables"`
+}
+
+// TemplatePreview renders an unsaved email template with sample recipient data.
+func (as *Server) TemplatePreview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		JSONResponse(w, models.Response{Success: false, Message: "Method not allowed"}, http.StatusMethodNotAllowed)
+		return
+	}
+	request := templatePreviewRequest{}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		JSONResponse(w, models.Response{Success: false, Message: "Invalid request"}, http.StatusBadRequest)
+		return
+	}
+	preview, err := models.RenderScenarioTemplatePreview(request.Template, request.URL, request.Variables)
+	if err != nil {
+		JSONResponse(w, models.Response{Success: false, Message: err.Error()}, http.StatusBadRequest)
+		return
+	}
+	JSONResponse(w, preview, http.StatusOK)
+}
+
 // Templates handles the functionality for the /api/templates endpoint
 func (as *Server) Templates(w http.ResponseWriter, r *http.Request) {
 	switch {

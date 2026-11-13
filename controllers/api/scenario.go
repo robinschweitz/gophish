@@ -45,13 +45,16 @@ func (as *Server) ScenarioPreview(w http.ResponseWriter, r *http.Request) {
 		JSONResponse(w, preview, http.StatusOK)
 		return
 	}
-	if request.Page.Id == 0 {
-		JSONResponse(w, models.Response{Success: false, Message: "Select a landing page or email template to preview"}, http.StatusBadRequest)
-		return
-	}
-	page, err := models.GetPage(request.Page.Id, ctx.Get(r, "user_id").(int64))
-	if err != nil {
-		JSONResponse(w, models.Response{Success: false, Message: "Landing page not found"}, http.StatusNotFound)
+	page := request.Page
+	if page.Id != 0 {
+		var err error
+		page, err = models.GetPage(page.Id, ctx.Get(r, "user_id").(int64))
+		if err != nil {
+			JSONResponse(w, models.Response{Success: false, Message: "Landing page not found"}, http.StatusNotFound)
+			return
+		}
+	} else if page.HTML == "" {
+		JSONResponse(w, models.Response{Success: false, Message: "Landing page HTML not specified"}, http.StatusBadRequest)
 		return
 	}
 	html, err := models.RenderScenarioPagePreview(page, request.URL, request.Variables)

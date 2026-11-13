@@ -90,7 +90,7 @@ var api = {
     },
     scenarioPreview: {
         post: function (data) {
-            return query("/scenarios/preview", "POST", data, false)
+            return query("/scenarios/preview", "POST", data, true)
         }
     },
     scenarioId: {
@@ -234,6 +234,11 @@ var api = {
         // delete() - Deletes a template at DELETE /templates/:id
         delete: function (id) {
             return query("/templates/" + id, "DELETE", {}, false)
+        }
+    },
+    templatePreview: {
+        post: function (data) {
+            return query("/templates/preview", "POST", data, true)
         }
     },
     // pages contains the endpoints for /pages

@@ -1,6 +1,12 @@
 var templates = []
 var teams = []
 var item_type = "templates"
+var templateHtmlMode = "visual"
+var templatePreviewTimer = null
+var templatePreviewRequest = 0
+var templatePendingHtml = ""
+var templateVisualReady = false
+var templateReadOnly = false
 var icons = {
     "application/vnd.ms-excel": "fa-file-excel-o",
     "text/plain": "fa-file-text-o",
@@ -23,7 +29,7 @@ function save(idx) {
     template.name = $("#name").val()
     template.subject = $("#subject").val()
     template.envelope_sender = $("#envelope-sender").val()
-    template.html = CKEDITOR.instances["html_editor"].getData();
+    template.html = getTemplateHtmlContent();
     // Fix the URL Scheme added by CKEditor (until we can remove it from the plugin)
     template.html = template.html.replace(/https?:\/\/{{\.URL}}/gi, "{{.URL}}")
     // If the "Add Tracker Image" checkbox is checked, add the tracker
@@ -72,12 +78,17 @@ function save(idx) {
 }
 
 function dismiss() {
+    clearTimeout(templatePreviewTimer)
+    templatePreviewRequest++
     $("#modal\\.flashes").empty()
     $("#attachmentsTable").dataTable().DataTable().clear().draw()
     $("#name").val("")
     $("#subject").val("")
     $("#text_editor").val("")
-    $("#html_editor").val("")
+    setTemplateHtmlContent("")
+    setTemplateHtmlMode("visual")
+    $("#templatePreviewSubject").empty()
+    document.getElementById("templateSourcePreview").srcdoc = ""
     $("#modal").modal('hide')
 }
 
@@ -168,14 +179,15 @@ function attach(files) {
 }
 
 function edit(idx) {
+    templateReadOnly = false
+    templateHtmlMode = "visual"
+    templateVisualReady = false
     $("#modalSubmit").unbind('click').click(function () {
         save(idx)
     })
     $("#attachmentUpload").unbind('click').click(function () {
         this.value = null
     })
-    $("#html_editor").ckeditor()
-    setupAutocomplete(CKEDITOR.instances["html_editor"])
     $("#attachmentsTable").show()
     attachmentsTable = $('#attachmentsTable').DataTable({
         destroy: true,
@@ -199,7 +211,8 @@ function edit(idx) {
         $("#name").val(template.name)
         $("#subject").val(template.subject)
         $("#envelope-sender").val(template.envelope_sender)
-        $("#html_editor").val(template.html)
+        setTemplateHtmlContent(template.html)
+        setTemplateHtmlMode("visual")
         $("#text_editor").val(template.text)
         attachmentRows = []
         $.each(template.attachments, function (i, file) {
@@ -222,7 +235,10 @@ function edit(idx) {
 
     } else {
         $("#templateModalLabel").text("New Template")
+        setTemplateHtmlContent("")
+        setTemplateHtmlMode("visual")
     }
+    $("#templateVisualMode, #templateSourceMode").prop("disabled", false)
     // Handle Deletion
     $("#attachmentsTable").unbind('click').on("click", "span>i.fa-trash-o", function () {
         attachmentsTable.row($(this).parents('tr'))
@@ -232,11 +248,12 @@ function edit(idx) {
 }
 
 function view(idx) {
+    templateReadOnly = true
+    templateHtmlMode = "visual"
+    templateVisualReady = false
     $("#modalSubmit").unbind('click').click(function () {
         save(idx)
     })
-    $("#html_editor").ckeditor()
-    setupAutocomplete(CKEDITOR.instances["html_editor"])
     $("#attachmentsTable").show()
     attachmentsTable = $('#attachmentsTable').DataTable({
         destroy: true,
@@ -260,7 +277,8 @@ function view(idx) {
     $("#name").val(template.name)
     $("#subject").val(template.subject)
     $("#envelope-sender").val(template.envelope_sender)
-    $("#html_editor").val(template.html)
+    setTemplateHtmlContent(template.html)
+    setTemplateHtmlMode("visual")
     $("#text_editor").val(template.text)
     attachmentRows = []
     $.each(template.attachments, function (i, file) {
@@ -290,17 +308,22 @@ function view(idx) {
     $("#subject").attr('readonly', true)
     $("#envelope-sender").attr('readonly', true)
     $("#text_editor").attr('readonly', true)
-    CKEDITOR.instances["html_editor"].config.readOnly = true
+    if (CKEDITOR.instances["html_editor"]) CKEDITOR.instances["html_editor"].config.readOnly = true
+    $("#templateVisualMode, #templateSourceMode").prop("disabled", true)
+    var codeEditor = getHTMLSourceEditor("html_source_editor")
+    if (codeEditor) codeEditor.setOption("readOnly", true)
 }
 
 function copy(idx) {
+    templateReadOnly = false
+    templateHtmlMode = "visual"
+    templateVisualReady = false
     $("#modalSubmit").unbind('click').click(function () {
         save(-1)
     })
     $("#attachmentUpload").unbind('click').click(function () {
         this.value = null
     })
-    $("#html_editor").ckeditor()
     $("#attachmentsTable").show()
     attachmentsTable = $('#attachmentsTable').DataTable({
         destroy: true,
@@ -322,7 +345,8 @@ function copy(idx) {
     $("#name").val("Copy of " + template.name)
     $("#subject").val(template.subject)
     $("#envelope-sender").val(template.envelope_sender)
-    $("#html_editor").val(template.html)
+    setTemplateHtmlContent(template.html)
+    setTemplateHtmlMode("visual")
     $("#text_editor").val(template.text)
     $.each(template.attachments, function (i, file) {
         var icon = icons[file.type] || "fa-file-o"
@@ -346,6 +370,9 @@ function copy(idx) {
     } else {
         $("#use_tracker_checkbox").prop("checked", false)
     }
+    $("#templateVisualMode, #templateSourceMode").prop("disabled", false)
+    var codeEditor = getHTMLSourceEditor("html_source_editor")
+    if (codeEditor) codeEditor.setOption("readOnly", false)
 }
 
 function importEmail() {
@@ -360,11 +387,11 @@ function importEmail() {
         })
             .success(function (data) {
                 $("#text_editor").val(data.text)
-                $("#html_editor").val(data.html)
+                setTemplateHtmlContent(data.html)
                 $("#subject").val(data.subject)
                 // If the HTML is provided, let's open that view in the editor
                 if (data.html) {
-                    CKEDITOR.instances["html_editor"].setMode('wysiwyg')
+                    setTemplateHtmlMode("visual")
                     $('.nav-tabs a[href="#html"]').click()
                 }
                 $("#importEmailModal").modal("hide")
@@ -451,6 +478,13 @@ function load() {
 }
 
 $(document).ready(function () {
+    $(window).on("resize", function () {
+        if ($("#modal").is(":visible") && templateHtmlMode === "visual") resizeGophishVisualEditor(CKEDITOR.instances["html_editor"])
+    })
+    $('#modal a[href="#html"]').on("shown.bs.tab", function () {
+        if (templateHtmlMode === "visual") ensureTemplateVisualEditor()
+    })
+    $("#subject, #text_editor").on("input", queueTemplateSourcePreview)
     // Setup multiple modals
     // Code based on http://miles-by-motorcycle.com/static/bootstrap-modal/index.html
     $('.modal').on('hidden.bs.modal', function (event) {
@@ -458,6 +492,9 @@ $(document).ready(function () {
         $('body').data('fv_open_modals', $('body').data('fv_open_modals') - 1);
     });
     $('.modal').on('shown.bs.modal', function (event) {
+        if ($(this).attr("id") === "modal" && $("#html").hasClass("active") && templateHtmlMode === "visual") {
+            ensureTemplateVisualEditor()
+        }
         // Keep track of the number of open modals
         if (typeof ($('body').data('fv_open_modals')) == 'undefined') {
             $('body').data('fv_open_modals', 0);
@@ -499,6 +536,7 @@ $(document).ready(function () {
     $("#importEmailModal").on('hidden.bs.modal', function (event) {
         $("#email_content").val("")
     })
+    $("#subject, #text_editor").on("input", queueTemplateSourcePreview)
     CKEDITOR.on('dialogDefinition', function (ev) {
         // Take the dialog name and its definition from the event data.
         var dialogName = ev.data.name;
@@ -520,4 +558,111 @@ $(document).ready(function () {
 
 function team(i) {
     updateItemTeamsAssignment(templates[i], item_type, teams)
+}
+
+function getTemplateHtmlContent() {
+    var sourceEditor = getHTMLSourceEditor("html_source_editor")
+    if (templateHtmlMode === "source" && sourceEditor) return sourceEditor.getValue()
+    var visualEditor = CKEDITOR.instances["html_editor"]
+    if (visualEditor && templateVisualReady) return visualEditor.getData()
+    return templatePendingHtml || ""
+}
+
+function setTemplateHtmlContent(html) {
+    html = html || ""
+    templatePendingHtml = html
+    templateVisualReady = false
+    var visualEditor = CKEDITOR.instances["html_editor"]
+    if (visualEditor && $("#html").is(":visible")) {
+        visualEditor.setData(html, function () { templateVisualReady = true })
+    } else if (!visualEditor) {
+        $("#html_editor").val(html)
+    }
+    var sourceEditor = getHTMLSourceEditor("html_source_editor")
+    if (sourceEditor) sourceEditor.setValue(html)
+}
+
+function ensureTemplateVisualEditor() {
+    var editor = CKEDITOR.instances["html_editor"]
+    if (!editor) {
+        $("#html_editor").ckeditor({ height: getGophishVisualEditorHeight() })
+        editor = CKEDITOR.instances["html_editor"]
+        if (editor) setupAutocomplete(editor)
+    }
+    if (!editor) return
+
+    editor.config.readOnly = templateReadOnly
+    resizeGophishVisualEditor(editor)
+    templateVisualReady = false
+    editor.setData(templatePendingHtml, function () {
+        if (editor.mode !== "wysiwyg") {
+            editor.setMode("wysiwyg", function () {
+                resizeGophishVisualEditor(editor)
+                templateVisualReady = true
+            })
+        } else {
+            resizeGophishVisualEditor(editor)
+            templateVisualReady = true
+        }
+    })
+}
+
+function setTemplateHtmlMode(mode) {
+    var sourceMode = mode === "source"
+    var html = getTemplateHtmlContent() || ""
+    if (!sourceMode) templatePendingHtml = html
+    templateHtmlMode = sourceMode ? "source" : "visual"
+    $("#templateVisualMode").toggleClass("btn-primary", !sourceMode).toggleClass("btn-default", sourceMode)
+    $("#templateSourceMode").toggleClass("btn-primary", sourceMode).toggleClass("btn-default", !sourceMode)
+    $("#templateVisualEditorContainer").toggle(!sourceMode)
+    $("#templateSourceEditorContainer").toggle(sourceMode)
+
+    var visualEditor = CKEDITOR.instances["html_editor"]
+    if (sourceMode) {
+        var codeEditor = setupHTMLSourceEditor("html_source_editor", queueTemplateSourcePreview)
+        if (codeEditor) {
+            setHTMLSourceValue("html_source_editor", html)
+        }
+        queueTemplateSourcePreview()
+    } else if ($("#html").is(":visible") && $("#modal").is(":visible")) {
+        clearTimeout(templatePreviewTimer)
+        templatePreviewRequest++
+        if (visualEditor) {
+            visualEditor.setData(html, function () {
+                if (visualEditor.mode !== "wysiwyg") visualEditor.setMode("wysiwyg", function () { resizeGophishVisualEditor(visualEditor) })
+                else resizeGophishVisualEditor(visualEditor)
+                templateVisualReady = true
+            })
+        } else {
+            ensureTemplateVisualEditor()
+        }
+    }
+}
+
+function queueTemplateSourcePreview() {
+    if (templateHtmlMode !== "source") return
+    clearTimeout(templatePreviewTimer)
+    templatePreviewTimer = setTimeout(renderTemplateSourcePreview, 300)
+}
+
+function renderTemplateSourcePreview() {
+    if (templateHtmlMode !== "source") return
+    var request = ++templatePreviewRequest
+    api.templatePreview.post({
+        template: {
+            subject: $("#subject").val(),
+            text: $("#text_editor").val(),
+            html: getTemplateHtmlContent()
+        },
+        url: "http://preview.local/",
+        variables: {}
+    }).success(function (preview) {
+        if (request !== templatePreviewRequest) return
+        $("#templatePreviewSubject").text(preview.subject || "(no subject)")
+        document.getElementById("templateSourcePreview").srcdoc = preview.html || "<html><body><p>This template has no HTML part.</p></body></html>"
+        $("#templatePreviewHint").text("Rendered with sample recipient data")
+    }).error(function (data) {
+        if (request !== templatePreviewRequest) return
+        $("#templatePreviewHint").text(data.responseJSON && data.responseJSON.message ? data.responseJSON.message : "Unable to render preview")
+    })
 }

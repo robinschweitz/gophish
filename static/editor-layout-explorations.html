@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Email and landing-page editor explorations</title>
+    <style>
+        :root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; color: #243447; background: #f2f5f8; }
+        * { box-sizing: border-box; }
+        body { margin: 0; padding: 30px; }
+        .page { max-width: 1500px; margin: auto; }
+        h1 { margin: 0 0 8px; font-size: 28px; }
+        .intro { margin: 0 0 24px; color: #64748b; line-height: 1.5; }
+        .designs { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+        .design { overflow: hidden; background: #fff; border: 1px solid #dce3eb; border-radius: 10px; box-shadow: 0 3px 14px #1b35540b; }
+        .design-head { padding: 17px 19px 14px; border-bottom: 1px solid #e6ebf0; }
+        .kicker { color: #428bca; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+        h2 { margin: 5px 0; font-size: 19px; }
+        .design-head p { margin: 0; color: #64748b; font-size: 13px; }
+        .mock { padding: 16px; background: #f8fafc; }
+        .window { overflow: hidden; border: 1px solid #d7e0e9; border-radius: 7px; background: #fff; box-shadow: 0 2px 7px #1b35540c; }
+        .window-title { display: flex; justify-content: space-between; padding: 9px 12px; color: #607184; background: #f0f3f6; border-bottom: 1px solid #e2e8ee; font-size: 11px; }
+        .toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 9px 11px; background: #fbfcfd; border-bottom: 1px solid #e6ebf0; }
+        .tool { padding: 5px 8px; border: 1px solid #d9e1e9; border-radius: 4px; background: #fff; color: #526274; font-size: 10px; }
+        .tool.active { color: #fff; border-color: #428bca; background: #428bca; }
+        .tool.menu { margin-left: auto; color: #276c9f; background: #f0f7fc; border-color: #cfe2f0; }
+        .email-layout, .page-layout { display: grid; grid-template-columns: 55% 45%; min-height: 390px; }
+        .editor-pane { padding: 12px; border-right: 1px solid #e6ebf0; }
+        .preview-pane { padding: 12px; background: #f7f9fb; }
+        .field { margin-bottom: 9px; }
+        .field label { display: block; margin-bottom: 4px; color: #536476; font-size: 10px; font-weight: 700; }
+        .input { min-height: 27px; padding: 6px 8px; border: 1px solid #d6dfe8; border-radius: 4px; color: #334155; background: #fff; font-size: 10px; }
+        .tabs { display: flex; gap: 3px; margin-bottom: 8px; border-bottom: 1px solid #dfe6ed; }
+        .tab { padding: 7px 9px; color: #64748b; font-size: 10px; }
+        .tab.active { color: #286f9f; border-bottom: 2px solid #428bca; font-weight: 700; }
+        .code { min-height: 201px; padding: 11px; border: 1px solid #dce3eb; border-radius: 4px; background: #fbfcfd; color: #476882; font-family: ui-monospace, Consolas, monospace; font-size: 10px; line-height: 1.65; white-space: pre-wrap; }
+        .caption { margin: 7px 0; color: #748396; font-size: 9px; }
+        .preview-title { margin-bottom: 8px; color: #526274; font-size: 10px; font-weight: 700; }
+        .mail { min-height: 316px; padding: 15px; border: 1px solid #e0e6ed; border-radius: 5px; background: #fff; box-shadow: 0 1px 4px #1b355408; }
+        .mail-subject { padding-bottom: 9px; margin-bottom: 12px; border-bottom: 1px solid #edf0f3; font-size: 11px; font-weight: 700; }
+        .mail p { margin: 8px 0; font-size: 10px; line-height: 1.6; }
+        .link { color: #2675b8; text-decoration: underline; }
+        .var { padding: 1px 4px; border-radius: 3px; color: #276c9f; background: #e8f3fb; font-family: ui-monospace, Consolas, monospace; font-size: 9px; }
+        .attachments { margin-top: 9px; padding: 8px; border: 1px dashed #cbd5df; border-radius: 4px; color: #64748b; font-size: 10px; }
+        .page-editor { min-height: 250px; padding: 12px; border: 1px solid #dce3eb; border-radius: 4px; background: #fff; }
+        .page-editor h3 { margin: 12px 0; color: #276b9d; font-size: 17px; }
+        .page-editor p { color: #536476; font-size: 10px; line-height: 1.6; }
+        .page-editor .fake-button { display: inline-block; margin-top: 8px; padding: 7px 10px; border-radius: 4px; color: #fff; background: #428bca; font-size: 10px; }
+        .page-settings { padding: 11px; margin-top: 10px; border: 1px solid #e0e6ed; border-radius: 4px; background: #fff; }
+        .checks { display: flex; flex-wrap: wrap; gap: 12px; color: #526274; font-size: 10px; }
+        .check { color: #428bca; }
+        .browser { min-height: 316px; border: 1px solid #d8e0e8; border-radius: 5px; background: #f1f4f7; overflow: hidden; }
+        .browser-bar { padding: 7px; border-bottom: 1px solid #dfe5eb; color: #758397; background: #e9eef3; font-size: 9px; }
+        .landing { min-height: 285px; margin: 10px; padding: 18px; border: 1px solid #e1e6eb; border-radius: 3px; background: white; }
+        .landing .tag { color: #6b8095; font-size: 9px; }
+        .landing h3 { margin: 8px 0; color: #245a8d; font-size: 17px; }
+        .landing p { color: #536476; font-size: 10px; line-height: 1.6; }
+        .takeaways { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px; }
+        .takeaway { padding: 14px 16px; border: 1px solid #dce3eb; border-radius: 8px; background: #fff; }
+        .takeaway strong { font-size: 12px; }
+        .takeaway p { margin: 5px 0 0; color: #64748b; font-size: 12px; line-height: 1.5; }
+        .question { margin-top: 18px; padding: 15px 18px; border-left: 4px solid #428bca; border-radius: 4px; background: #eaf4fc; color: #38556d; font-size: 13px; line-height: 1.55; }
+        @media(max-width:1050px) { .designs,.takeaways { grid-template-columns:1fr; } }
+        @media(max-width:650px) { body { padding:15px; } .email-layout,.page-layout { grid-template-columns:1fr; } .editor-pane { border-right:0; border-bottom:1px solid #e6ebf0; } }
+    </style>
+</head>
+<body>
+<main class="page">
+    <h1>Email and landing-page editor ideas</h1>
+    <p class="intro">The current editors are narrow modals without an in-editor rendered preview. These two mockups use a wider workspace and keep authored content separate from the rendered result.</p>
+    <section class="designs">
+        <article class="design">
+            <header class="design-head"><span class="kicker">Email template editor</span><h2>Write on the left, see the email on the right</h2><p>Keep sender/subject and both message formats close to a realistic email preview.</p></header>
+            <div class="mock"><div class="window">
+                <div class="window-title"><span>Edit email template</span><span>Save template</span></div>
+                <div class="toolbar"><span class="tool active">Visual</span><span class="tool">HTML source</span><span class="tool">Plain text</span><span class="tool menu">Insert variable ▾</span></div>
+                <div class="email-layout">
+                    <div class="editor-pane">
+                        <div class="field"><label>SUBJECT</label><div class="input">A quick note from {{.Scenario.CompanyName}}</div></div>
+                        <div class="field"><label>SENDER</label><div class="input">Preview Sender &lt;preview@example.com&gt;</div></div>
+                        <div class="tabs"><div class="tab active">HTML</div><div class="tab">Plain text</div></div>
+                        <div class="code">&lt;p&gt;Hi {{.FirstName}},&lt;/p&gt;
+&lt;p&gt;A note for {{.Scenario.CompanyName}}.&lt;/p&gt;
+&lt;a href="{{.URL}}"&gt;View details&lt;/a&gt;</div>
+                        <div class="attachments">＋ Add attachment</div>
+                    </div>
+                    <div class="preview-pane"><div class="preview-title">RENDERED EMAIL · Alex Example</div><div class="mail"><div class="mail-subject">A quick note from Contoso</div><p>Hi Alex,</p><p>A note for <b>Contoso</b>.</p><p class="link">View details</p><p>Regards,<br>Preview Sender</p></div><p class="caption">Preview target and scenario values can be changed without closing the editor.</p></div>
+                </div>
+            </div></div>
+        </article>
+        <article class="design">
+            <header class="design-head"><span class="kicker">Landing-page editor</span><h2>Edit the page beside its browser preview</h2><p>Keep page content and behavior settings in one workspace without sacrificing the rendered page.</p></header>
+            <div class="mock"><div class="window">
+                <div class="window-title"><span>Edit landing page</span><span>Save page</span></div>
+                <div class="toolbar"><span class="tool active">Visual</span><span class="tool">HTML source</span><span class="tool menu">Insert variable ▾</span></div>
+                <div class="page-layout">
+                    <div class="editor-pane">
+                        <div class="field"><label>PAGE NAME</label><div class="input">Scenario demo page</div></div>
+                        <div class="page-editor"><div class="tag">EDITABLE PAGE CONTENT</div><h3>Hello {{.FirstName}}</h3><p>This page is customized for <b>{{.Scenario.CompanyName}}</b>.</p><p>{{.Scenario.Message}}</p><span class="fake-button">Continue</span></div>
+                        <div class="page-settings"><div class="field"><label>PAGE BEHAVIOR</label><div class="checks"><span><b class="check">□</b> Capture submitted data</span><span><b class="check">□</b> Capture passwords</span></div></div><div class="field"><label>AFTER SUBMIT</label><div class="input">https://example.com/thanks</div></div></div>
+                    </div>
+                    <div class="preview-pane"><div class="preview-title">BROWSER PREVIEW · Alex Example</div><div class="browser"><div class="browser-bar">🔒 https://preview.local/</div><div class="landing"><div class="tag">SCENARIO DEMO</div><h3>Hello Alex</h3><p>This page is customized for <b>Contoso</b>.</p><p>A short scenario-specific message appears here.</p><span class="fake-button">Continue</span></div></div><p class="caption">Page variables and layout update in place as you edit.</p></div>
+                </div>
+            </div></div>
+        </article>
+    </section>
+    <section class="takeaways">
+        <div class="takeaway"><strong>Shared improvements</strong><p>Wider workspace; preview stays visible; clear Visual / HTML source modes; searchable variable insertion; fixed Save action; sample recipient selector.</p></div>
+        <div class="takeaway"><strong>Keep email formats distinct</strong><p>HTML and plain text remain separate editable bodies, with a rendered email preview that reflects the selected format and current values.</p></div>
+    </section>
+    <div class="question"><strong>Which direction feels right?</strong> For email HTML editing, would you rather have a visual editor, an HTML source editor, or an easy switch between both? For the preview, should it always stay beside the editor or be collapsible on smaller screens?</div>
+</main>
+</body>
+</html>
