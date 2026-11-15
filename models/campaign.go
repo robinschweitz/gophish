@@ -35,6 +35,8 @@ type Campaign struct {
 	StartTime     time.Time     `json:"start_time"`
 	EndTime       time.Time     `json:"end_time"`
 	Location      string        `json:"location"`
+	URL           string        `json:"url"`
+	EncryptionKey string        `json:"encryption_key"`
 }
 
 // CampaignResults is a struct representing the results from a campaign
@@ -85,17 +87,18 @@ type CampaignTeams struct {
 
 // Added CampaignMailContext to allow Campaign specific Mail Context to be different from Scenario Context
 type CampaignMailContext struct {
-	Id         int64    `json:"id"`
-	TemplateId int64    `json:"-"`
-	Template   Template `json:"template"`
-	SMTPId     int64    `json:"-"`
-	SMTP       SMTP     `json:"smtp" gorm:"-"`
-	Status     string   `json:"status"`
-	Results    []Result `json:"results,omitempty"`
-	Groups     []Group  `json:"groups,omitempty"`
-	Events     []Event  `json:"timeline,omitempty"`
-	URL        string   `json:"url"`
-	UserId     int64    `json:"-"`
+	Id            int64    `json:"id"`
+	TemplateId    int64    `json:"-"`
+	Template      Template `json:"template"`
+	SMTPId        int64    `json:"-"`
+	SMTP          SMTP     `json:"smtp" gorm:"-"`
+	Status        string   `json:"status"`
+	Results       []Result `json:"results,omitempty"`
+	Groups        []Group  `json:"groups,omitempty"`
+	Events        []Event  `json:"timeline,omitempty"`
+	URL           string   `json:"url"`
+	EncryptionKey string   `json:"encryption_key"`
+	UserId        int64    `json:"-"`
 }
 
 // Event contains the fields for an event
@@ -265,6 +268,14 @@ func (c *Campaign) getDetails() error {
 // This is used to implement the TemplateContext interface.
 func (c *CampaignMailContext) getBaseURL() string {
 	return c.URL
+}
+
+func (c *CampaignMailContext) getEncryptionKey() string {
+	return c.EncryptionKey
+}
+
+func (c *Campaign) getEncryptionKey() string {
+	return c.EncryptionKey
 }
 
 // getFromAddress returns the Campaign's configured SMTP "From" address.
@@ -555,6 +566,10 @@ func GetCampaignMailContext(id int64, uid int64, temid int64) (CampaignMailConte
 		}
 		cm.URL = scenario.URL
 	}
+	if c.URL != "" {
+		cm.URL = c.URL
+	}
+	cm.EncryptionKey = c.EncryptionKey
 	cm.SMTP = c.SMTP
 	return cm, nil
 }

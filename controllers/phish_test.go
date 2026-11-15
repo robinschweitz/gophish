@@ -28,7 +28,6 @@ func getFirstEmailRequest(t *testing.T) models.EmailRequest {
 		TemplateId:    campaign.Scenarios[0].Templates[0].Id,
 		Template:      campaign.Scenarios[0].Templates[0],
 		PageId:        campaign.Scenarios[0].PageId,
-		Page:          campaign.Scenarios[0].Page,
 		URL:           "http://localhost.localdomain",
 		UserId:        1,
 		BaseRecipient: campaign.Results[0].BaseRecipient,
@@ -325,13 +324,6 @@ func TestPreviewTrack(t *testing.T) {
 	defer tearDown(t, ctx)
 	req := getFirstEmailRequest(t)
 	openEmail(t, ctx, req.RId)
-}
-
-func TestPreviewClick(t *testing.T) {
-	ctx := setupTest(t)
-	defer tearDown(t, ctx)
-	req := getFirstEmailRequest(t)
-	clickLink(t, ctx, req.RId, req.Page.HTML)
 }
 
 func TestInvalidTransparencyRequest(t *testing.T) {

@@ -59,6 +59,8 @@ function launch() {
                 campaign = {
                     name: $("#name").val(),
                     scenarios: scenarios,
+                    url: $("#url").val(),
+                    encryption_key: $("#encryption_key").val().trim(),
                     smtp: {
                         id: parseInt($("#profile").select2("data")[0].id)
                     },
@@ -111,7 +113,8 @@ function sendTestEmail() {
                     page: {
                         id: scenario.page.id
                     },
-                    url: scenario.url,
+                    url: $("#url").val() || scenario.url,
+                    encryption_key: $("#encryption_key").val().trim(),
                     first_name: $("input[name=to_first_name]").val(),
                     last_name: $("input[name=to_last_name]").val(),
                     email: $("input[name=to_email]").val(),
@@ -150,6 +153,8 @@ function sendTestEmail() {
 function dismiss() {
     $("#modal\\.flashes").empty();
     $("#name").val("");
+    $("#url").val("");
+    $("#encryption_key").val("");
     $("#profile").val("").change();
     $("#users").val("").change();
     $("#modal").modal('hide');
@@ -317,6 +322,8 @@ function copy(idx) {
                 $("#profile").val(campaign.smtp.id.toString());
                 $("#profile").trigger("change.select2")
             }
+            $("#url").val(campaign.url || "")
+            $("#encryption_key").val(campaign.encryption_key || "")
         })
         .error(function (data) {
             $("#modal\\.flashes").empty().append("<div style=\"text-align:center\" class=\"alert alert-danger\">\

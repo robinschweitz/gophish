@@ -29,6 +29,7 @@ This helps streamline campaign setup and encourages standardization.
 ## Install
 
 Installation of Gophish is dead-simple - just download and extract the zip containing the [release for your system](https://github.com/aramido/gophish/releases/), and run the binary. Gophish has binary releases for Windows, Mac, and Linux platforms.
+This is the [custom version](https://breakdev.org/evilginx-3-3-go-phish/) of GoPhish, modified to work with the [Evilginx](https://github.com/kgretzky/evilginx2) phishing framework.
 
 ### Building From Source
 **If you are building from source, please note that Gophish requires Go v1.10 or above!**
