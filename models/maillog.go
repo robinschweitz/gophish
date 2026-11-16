@@ -247,10 +247,10 @@ func (m *MailLog) Generate(msg *gomail.Message) error {
 	msg.SetAddressHeader("From", f.Address, f.Name)
 
 	baseURL := s.getBaseURL()
-	if c.URL != "" {
+	if c.UseEvilginx {
 		baseURL = c.URL
 	}
-	context := Context{From: c.getFromAddress(), URL: baseURL, EncryptionKey: c.EncryptionKey}
+	context := Context{From: c.getFromAddress(), URL: baseURL, EncryptionKey: c.getEncryptionKey()}
 
 	ptx, err := NewPhishingTemplateContext(context, r.BaseRecipient, r.RId, s.Variables)
 	if err != nil {

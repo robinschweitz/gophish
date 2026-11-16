@@ -91,14 +91,19 @@
                     <select class="form-control" placeholder="Scenario Name" id="scenario" multiple/>
                     <option></option>
                     </select>
-                    <label class="control-label" for="encryption_key">Lure Encryption Key (Evilginx Pro):
-                        <i class="fa fa-question-circle" data-toggle="tooltip" data-html="true" data-placement="right" title="Encrypt custom parameters using a custom encryption key.<br/><br/>Enter the exact same encryption key used in your Evilginx Pro server.<br/><br/>(available only in Evilginx Pro; leave blank when using the community version)"></i>
-                    </label>
-                    <input type="text" autocomplete="off" class="form-control" placeholder="(copy the enc_key value from server config)" id="encryption_key" />
-                    <label class="control-label" for="url">Lure URL (Evilginx):
-                        <i class="fa fa-question-circle" data-toggle="tooltip" data-placement="right" title="Lure URL generated with Evilginx"></i>
-                    </label>
-                    <input type="text" autocomplete="off" class="form-control" placeholder="https://phishing.domain/your/generated/lure/url" id="url" />
+                    <div class="checkbox checkbox-primary">
+                        <input id="use_evilginx" type="checkbox">
+                        <label for="use_evilginx">Use an Evilginx lure for this campaign</label>
+                    </div>
+                    <div id="evilginxCampaignOptions" style="display:none">
+                        <p class="help-block">Enable this to send recipients to an Evilginx lure. Leave it unchecked to use the landing page configured in the selected GoPhish scenario.</p>
+                        <label class="control-label" for="url">Evilginx Lure URL:</label>
+                        <input type="text" autocomplete="off" class="form-control" placeholder="https://phishing.domain/your/generated/lure/url" id="url" />
+                        <label class="control-label" for="encryption_key">Lure Encryption Key (Evilginx Pro):
+                            <i class="fa fa-question-circle" data-toggle="tooltip" data-html="true" data-placement="right" title="Enter the same encryption key used in your Evilginx Pro server. Leave blank when using the community version."></i>
+                        </label>
+                        <input type="text" autocomplete="off" class="form-control" placeholder="(copy the enc_key value from server config)" id="encryption_key" />
+                    </div>
                     <label for="timezone" class="form-label">Timezone</label>
                     <select id="timezone" class="form-control"></select>
                     <div class="checkbox checkbox-primary">
