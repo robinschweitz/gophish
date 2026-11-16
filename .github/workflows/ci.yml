@@ -34,3 +34,26 @@ jobs:
     
     - name: Test
       run: go test ./...
+
+  e2e:
+    name: Browser E2E
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: npm
+        cache-dependency-path: tests/e2e/package-lock.json
+
+    - name: Install E2E dependencies
+      run: npm ci --prefix tests/e2e
+
+    - name: Install Chromium
+      run: tests/e2e/node_modules/.bin/playwright install --with-deps chromium
+
+    - name: Run browser E2E tests
+      run: npm --prefix tests/e2e test
