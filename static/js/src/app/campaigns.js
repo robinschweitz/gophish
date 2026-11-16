@@ -59,6 +59,9 @@ function launch() {
                 campaign = {
                     name: $("#name").val(),
                     scenarios: scenarios,
+                    use_evilginx: $("#use_evilginx").is(":checked"),
+                    url: $("#use_evilginx").is(":checked") ? $("#url").val().trim() : "",
+                    encryption_key: $("#use_evilginx").is(":checked") ? $("#encryption_key").val().trim() : "",
                     smtp: {
                         id: parseInt($("#profile").select2("data")[0].id)
                     },
@@ -111,7 +114,8 @@ function sendTestEmail() {
                     page: {
                         id: scenario.page.id
                     },
-                    url: scenario.url,
+                    url: $("#use_evilginx").is(":checked") ? $("#url").val().trim() : scenario.url,
+                    encryption_key: $("#use_evilginx").is(":checked") ? $("#encryption_key").val().trim() : "",
                     first_name: $("input[name=to_first_name]").val(),
                     last_name: $("input[name=to_last_name]").val(),
                     email: $("input[name=to_email]").val(),
@@ -150,6 +154,9 @@ function sendTestEmail() {
 function dismiss() {
     $("#modal\\.flashes").empty();
     $("#name").val("");
+    $("#use_evilginx").prop("checked", false).trigger("change");
+    $("#url").val("");
+    $("#encryption_key").val("");
     $("#profile").val("").change();
     $("#users").val("").change();
     $("#modal").modal('hide');
@@ -283,6 +290,8 @@ function setupOptions() {
 }
 
 function edit(campaign) {
+    $("#use_evilginx").prop("checked", false).trigger("change");
+    $("#url, #encryption_key").val("");
     setupOptions();
 }
 
@@ -317,6 +326,9 @@ function copy(idx) {
                 $("#profile").val(campaign.smtp.id.toString());
                 $("#profile").trigger("change.select2")
             }
+            $("#use_evilginx").prop("checked", !!campaign.use_evilginx).trigger("change")
+            $("#url").val(campaign.use_evilginx ? campaign.url || "" : "")
+            $("#encryption_key").val(campaign.use_evilginx ? campaign.encryption_key || "" : "")
         })
         .error(function (data) {
             $("#modal\\.flashes").empty().append("<div style=\"text-align:center\" class=\"alert alert-danger\">\
@@ -325,6 +337,11 @@ function copy(idx) {
 }
 
 $(document).ready(function () {
+    $("#use_evilginx").on("change", function () {
+        var enabled = $(this).is(":checked")
+        $("#evilginxCampaignOptions").toggle(enabled)
+        if (!enabled) $("#url, #encryption_key").val("")
+    })
     $("#launch_date").datetimepicker({
         "widgetPositioning": {
             "vertical": "bottom"

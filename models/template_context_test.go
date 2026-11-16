@@ -7,8 +7,9 @@ import (
 )
 
 type mockTemplateContext struct {
-	URL         string
-	FromAddress string
+	URL           string
+	FromAddress   string
+	EncryptionKey string
 }
 
 func (m mockTemplateContext) getFromAddress() string {
@@ -17,6 +18,10 @@ func (m mockTemplateContext) getFromAddress() string {
 
 func (m mockTemplateContext) getBaseURL() string {
 	return m.URL
+}
+
+func (m mockTemplateContext) getEncryptionKey() string {
+	return m.EncryptionKey
 }
 
 func (s *ModelsSuite) TestNewTemplateContext(c *check.C) {
@@ -29,8 +34,9 @@ func (s *ModelsSuite) TestNewTemplateContext(c *check.C) {
 		RId: "1234567",
 	}
 	ctx := mockTemplateContext{
-		URL:         "http://example.com",
-		FromAddress: "From Address <from@example.com>",
+		URL:           "http://example.com",
+		FromAddress:   "From Address <from@example.com>",
+		EncryptionKey: "",
 	}
 	expected := PhishingTemplateContext{
 		URL:           fmt.Sprintf("%s?rid=%s", ctx.URL, r.RId),

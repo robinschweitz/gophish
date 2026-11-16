@@ -267,6 +267,9 @@ func (s *ModelsSuite) TestCampaignSummaries(c *check.C) {
 
 func (s *ModelsSuite) TestCampaignMailContext(c *check.C) {
 	campaign := s.createCampaignDependencies(c)
+	// Older campaigns retained a URL field. When Evilginx is not selected,
+	// delivery should continue to use the scenario's GoPhish URL.
+	campaign.URL = "https://legacy.example/"
 	// If both are zero, then the campaign should start immediately with no
 	// send by date
 	err := campaign.Validate()
@@ -278,6 +281,20 @@ func (s *ModelsSuite) TestCampaignMailContext(c *check.C) {
 	mc, err := GetCampaignMailContext(campaign.Id, campaign.UserId, campaign.Scenarios[0].Templates[0].Id)
 	c.Assert(err, check.Equals, nil)
 	c.Assert(mc.Template.Id, check.Equals, campaign.Scenarios[0].Templates[0].Id)
+	c.Assert(mc.URL, check.Equals, campaign.Scenarios[0].URL)
+	c.Assert(mc.EncryptionKey, check.Equals, "")
+
+	err = db.Model(&Campaign{}).Where("id = ?", campaign.Id).Updates(map[string]interface{}{
+		"use_evilginx":   true,
+		"url":            "https://evilginx.example/lure",
+		"encryption_key": "campaign-key",
+	}).Error
+	c.Assert(err, check.Equals, nil)
+
+	mc, err = GetCampaignMailContext(campaign.Id, campaign.UserId, campaign.Scenarios[0].Templates[0].Id)
+	c.Assert(err, check.Equals, nil)
+	c.Assert(mc.URL, check.Equals, "https://evilginx.example/lure")
+	c.Assert(mc.EncryptionKey, check.Equals, "campaign-key")
 }
 
 func (s *ModelsSuite) TestCampaignResults(c *check.C) {

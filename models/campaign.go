@@ -35,6 +35,9 @@ type Campaign struct {
 	StartTime     time.Time     `json:"start_time"`
 	EndTime       time.Time     `json:"end_time"`
 	Location      string        `json:"location"`
+	UseEvilginx   bool          `json:"use_evilginx"`
+	URL           string        `json:"url"`
+	EncryptionKey string        `json:"encryption_key"`
 }
 
 // CampaignResults is a struct representing the results from a campaign
@@ -85,17 +88,18 @@ type CampaignTeams struct {
 
 // Added CampaignMailContext to allow Campaign specific Mail Context to be different from Scenario Context
 type CampaignMailContext struct {
-	Id         int64    `json:"id"`
-	TemplateId int64    `json:"-"`
-	Template   Template `json:"template"`
-	SMTPId     int64    `json:"-"`
-	SMTP       SMTP     `json:"smtp" gorm:"-"`
-	Status     string   `json:"status"`
-	Results    []Result `json:"results,omitempty"`
-	Groups     []Group  `json:"groups,omitempty"`
-	Events     []Event  `json:"timeline,omitempty"`
-	URL        string   `json:"url"`
-	UserId     int64    `json:"-"`
+	Id            int64    `json:"id"`
+	TemplateId    int64    `json:"-"`
+	Template      Template `json:"template"`
+	SMTPId        int64    `json:"-"`
+	SMTP          SMTP     `json:"smtp" gorm:"-"`
+	Status        string   `json:"status"`
+	Results       []Result `json:"results,omitempty"`
+	Groups        []Group  `json:"groups,omitempty"`
+	Events        []Event  `json:"timeline,omitempty"`
+	URL           string   `json:"url"`
+	EncryptionKey string   `json:"encryption_key"`
+	UserId        int64    `json:"-"`
 }
 
 // Event contains the fields for an event
@@ -146,6 +150,9 @@ var ErrPageNotSpecified = errors.New("No landing page specified")
 // ErrSMTPNotSpecified indicates a sending profile was not provided for the campaign
 var ErrSMTPNotSpecified = errors.New("No sending profile specified")
 
+// ErrEvilginxURLNotSpecified indicates an Evilginx campaign is missing its lure URL.
+var ErrEvilginxURLNotSpecified = errors.New("Evilginx lure URL not specified")
+
 // ErrTemplateNotFound indicates the template specified does not exist in the database
 var ErrTemplateNotFound = errors.New("Template not found")
 
@@ -182,6 +189,8 @@ func (c *Campaign) Validate() error {
 		return ErrScenarioNotFound
 	case c.SMTP.Id == 0:
 		return ErrSMTPNotSpecified
+	case c.UseEvilginx && c.URL == "":
+		return ErrEvilginxURLNotSpecified
 	case !c.SendByDate.IsZero() && !c.LaunchDate.IsZero() && c.SendByDate.Before(c.LaunchDate):
 		return ErrInvalidSendByDate
 	}
@@ -265,6 +274,17 @@ func (c *Campaign) getDetails() error {
 // This is used to implement the TemplateContext interface.
 func (c *CampaignMailContext) getBaseURL() string {
 	return c.URL
+}
+
+func (c *CampaignMailContext) getEncryptionKey() string {
+	return c.EncryptionKey
+}
+
+func (c *Campaign) getEncryptionKey() string {
+	if !c.UseEvilginx {
+		return ""
+	}
+	return c.EncryptionKey
 }
 
 // getFromAddress returns the Campaign's configured SMTP "From" address.
@@ -551,9 +571,13 @@ func GetCampaignMailContext(id int64, uid int64, temid int64) (CampaignMailConte
 		for _, template := range scenario.Templates {
 			if template.Id == temid {
 				cm.Template = template
+				cm.URL = scenario.URL
 			}
 		}
-		cm.URL = scenario.URL
+	}
+	if c.UseEvilginx {
+		cm.URL = c.URL
+		cm.EncryptionKey = c.EncryptionKey
 	}
 	cm.SMTP = c.SMTP
 	return cm, nil

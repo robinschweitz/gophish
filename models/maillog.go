@@ -48,8 +48,9 @@ type MailLog struct {
 }
 
 type Context struct {
-	From string
-	URL  string
+	From          string
+	URL           string
+	EncryptionKey string
 }
 
 // getBaseURL implements TemplateContext.
@@ -60,6 +61,10 @@ func (c Context) getBaseURL() string {
 // getFromAddress implements TemplateContext.
 func (c Context) getFromAddress() string {
 	return c.From
+}
+
+func (c Context) getEncryptionKey() string {
+	return c.EncryptionKey
 }
 
 // GenerateMailLog creates a new maillog for the given campaign and
@@ -241,14 +246,16 @@ func (m *MailLog) Generate(msg *gomail.Message) error {
 	}
 	msg.SetAddressHeader("From", f.Address, f.Name)
 
-	context := Context{From: c.getFromAddress(), URL: s.getBaseURL()}
+	baseURL := s.getBaseURL()
+	if c.UseEvilginx {
+		baseURL = c.URL
+	}
+	context := Context{From: c.getFromAddress(), URL: baseURL, EncryptionKey: c.getEncryptionKey()}
 
 	ptx, err := NewPhishingTemplateContext(context, r.BaseRecipient, r.RId, s.Variables)
 	if err != nil {
 		return err
 	}
-
-	// Add the transparency headers
 	msg.SetHeader("X-Mailer", config.ServerName)
 	if conf.ContactAddress != "" {
 		msg.SetHeader("X-Gophish-Contact", conf.ContactAddress)
